@@ -148,8 +148,8 @@ class ToolEvaluator:
         param_dict['__galaxy_url__'] = self.compute_environment.galaxy_url()
 
         param_dict.update(self.tool.template_macro_params)
-
-	    os.environ['GALAXY_GPU_ENABLED'] = "false"
+        
+        os.environ['GALAXY_GPU_ENABLED'] = "false"
         flag = 0
         if self.tool:
             reqmnts = self.tool.requirements
@@ -165,11 +165,9 @@ class ToolEvaluator:
 
 
         param_dict['__galaxy_gpu_enabled__'] = os.environ['GALAXY_GPU_ENABLED']
-
-
-	param_dict.update(self.tool.template_macro_params)
-
-
+        
+        param_dict.update(self.tool.template_macro_params)
+        
         # All parameters go into the param_dict
         param_dict.update(incoming)
 
