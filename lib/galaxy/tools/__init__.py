@@ -815,7 +815,7 @@ class Tool(Dictifiable):
             log.info("**************************GPU ENABLED**********************************************")
             os.environ['GALAXY_GPU_ENABLED'] = "true"
         else:
-            log.info("**************************GPU DISABLED*********************************************")
+            #log.info("**************************GPU DISABLED*********************************************")
             os.environ['GALAXY_GPU_ENABLED'] = "false"
 
         self.docker_env_pass_through = tool_source.parse_docker_env_pass_through()
@@ -1240,6 +1240,9 @@ class Tool(Dictifiable):
                 if value_from:
                     value_from = value_from.split(':')
                     group.value_from = locals().get(value_from[0])
+                    log.debug("TOOL VALUE_REF COMING HERE IS %s",(group.value_ref))
+                    for x, y in rval.items():
+                        log.debug("%s:%s" % (x, y))
                     group.test_param = rval[group.value_ref]
                     group.test_param.refresh_on_change = True
                     for attr in value_from[1].split('.'):
@@ -2167,7 +2170,7 @@ class Tool(Dictifiable):
             'requirements'  : [{'name' : r.name, 'version' : r.version} for r in self.requirements],
             'errors'        : state_errors,
             'tool_errors'   : self.tool_errors,
-            'state_inputs'  : params_to_strings(self.inputs, state_inputs, self.app, use_security=True, nested=True),
+            'state_inputs'  : params_to_strings(self.inputs, state_inputs, self.app, nested=True),
             'job_id'        : trans.security.encode_id(job.id) if job else None,
             'job_remap'     : self._get_job_remap(job),
             'history_id'    : trans.security.encode_id(history.id) if history else None,

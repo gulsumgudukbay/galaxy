@@ -37,8 +37,8 @@
         -g $g
 	    -t $t
 	#if $__galaxy_gpu_enabled__ == "true":
-	    -c $gpu_options.c
-	    $gpu_options.b
+	    -c $c
+	    $b
 	#end if
         > racon_polished_consensus.fa  
 
@@ -58,7 +58,8 @@
         <param argument="-g" type="integer" value="-8" max="0" label="Gap penalty" />        
         <param argument="-t" type="integer" value="1" label="Number of Threads" />
         <param name="gpu_support" type="hidden" value="true" />
-	<conditional name="gpu_options" value_from="self:app.datatypes_registry.get_gpu_val" value_ref="gpu_support" value_ref_in_group="False" />
+	    <param argument="-c" type="integer" name="c" value="1" label="Number of batches for CUDA accelerated polishing" />
+        <param argument="-b" type="boolean" name="b" value="" truevalue="-b" falsevalue="" label="Use banding approximation for polishing on GPU." />
     </inputs>
     <outputs>
         <data name="consensus" format="fasta" from_work_dir="racon_polished_consensus.fa" />

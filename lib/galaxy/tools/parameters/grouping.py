@@ -650,9 +650,13 @@ class Conditional(Group):
     def get_current_case(self, value):
         # Convert value to user representation
         str_value = self.test_param.to_param_dict_string(value)
+
         # Find the matching case
         for index, case in enumerate(self.cases):
+            log.debug("index: %s, case: %s, str value: %s, value: %s" % (index,case.value,str_value,value))
             if str_value == case.value:
+                log.debug("2index: %s, case: %s, str value: %s, value: %s" % (index,case.value,str_value,value))
+
                 return index
         raise ValueError("No case matched value:", self.name, str_value)
 

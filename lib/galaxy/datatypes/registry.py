@@ -926,16 +926,17 @@ class Registry:
         return rval
 
     def get_gpu_val(self, context, group, tool):
-        self.log.debug("Hello from tool %s" % (tool.id))
         rval = {}
         inputs = []
         if os.environ['GALAXY_GPU_ENABLED'] == "true":
+            self.log.debug("***************************222 RACON PARAM for")
+
             inputs.append('<param argument="-c" type="integer" name="c" value="1" label="Number of batches for CUDA accelerated polishing" />')
             inputs.append('<param argument="-b" type="boolean" name="b" value="" truevalue="-b" falsevalue="" label="Use banding approximation for polishing on GPU." />')
         rval['true'] = "\n".join(inputs)
         rval['false'] = ['']
 
-        self.log.debug("RACON PARAM for %s is %s" % ('true',rval['true']))
+        self.log.debug("***************************RACON PARAM for %s is %s" % ('true',rval['true']))
 
         return rval
 
