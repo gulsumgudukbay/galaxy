@@ -2,11 +2,23 @@ import json
 import logging
 import os
 import tempfile
+import subprocess
 
-import pynvml as nvml
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out:
+    gpu_flag = 1
+    import pynvml as nvml
+
 log = logging.getLogger(__name__)
-nvml.nvmlInit()
-gpu_count = nvml.nvmlDeviceGetCount()
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
+
 from six import string_types
 
 from galaxy import model
@@ -156,7 +168,7 @@ class ToolEvaluator:
             for req in reqmnts:
                 if req.type == "compute" and req.name == "gpu":
                     flag = 1
-            if gpu_count > 0 and flag == 1:
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
                 log.info("**************************GPU ENABLED!!!!!**********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
             else:

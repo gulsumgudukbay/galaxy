@@ -27,9 +27,20 @@ log = getLogger(__name__)
 DOCKER_CONTAINER_TYPE = "docker"
 SINGULARITY_CONTAINER_TYPE = "singularity"
 
-import pynvml as nvml
-nvml.nvmlInit()
-gpu_count = nvml.nvmlDeviceGetCount()
+import subprocess
+
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out:
+    gpu_flag = 1
+    import pynvml as nvml
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
 
 
 LOAD_CACHED_IMAGE_COMMAND_TEMPLATE = r'''
@@ -278,7 +289,7 @@ class DockerContainer(Container, HasDockerLikeVolumes):
             for req in reqmnts:
                 if req.type == "compute" and req.name == "gpu":
                     flag = 1
-            if gpu_count > 0 and flag == 1:
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
                 log.info("**************************GPU ENABLED DOCKER**********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
             else:
@@ -412,7 +423,7 @@ class SingularityContainer(Container, HasDockerLikeVolumes):
             for req in reqmnts:
                 if req.type == "compute" and req.name == "gpu":
                     flag = 1
-            if gpu_count > 0 and flag == 1:
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
                 log.info("**************************GPU ENABLED SINGULARITY**********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
             else:
