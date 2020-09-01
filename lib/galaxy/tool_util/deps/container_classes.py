@@ -30,11 +30,12 @@ SINGULARITY_CONTAINER_TYPE = "singularity"
 import subprocess
 
 gpu_flag = 0
-bash_command = "/bin/bash -c 'nvidia-smi'"
+bash_command = "/bin/bash -c 'nvidia-s'"
 sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 out, err = sp.communicate()
 command_not_found = 'command not found'
-if command_not_found.encode() not in out:
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
     gpu_flag = 1
     import pynvml as nvml
 
