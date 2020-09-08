@@ -31,7 +31,7 @@ DOCKER_CONTAINER_TYPE = "docker"
 SINGULARITY_CONTAINER_TYPE = "singularity"
 
 gpu_flag = 0
-bash_command = "/bin/bash -c 'nvidia-s'"
+bash_command = "/bin/bash -c 'nvidia-smi'"
 sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 out, err = sp.communicate()
 command_not_found = 'command not found'
