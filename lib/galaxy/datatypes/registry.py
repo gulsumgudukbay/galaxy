@@ -936,7 +936,7 @@ class Registry:
         rval['true'] = "\n".join(inputs)
         rval['false'] = ['']
 
-        self.log.debug("***************************RACON PARAM for %s is %s" % ('true',rval['true']))
+        self.log.debug("***************************RACON PARAM for %s is %s" % ('true', rval['true']))
 
         return rval
 

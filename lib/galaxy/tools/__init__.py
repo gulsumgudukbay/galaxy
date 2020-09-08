@@ -110,12 +110,12 @@ from galaxy.util.tool_shed.common_util import (
 )
 from galaxy.version import VERSION_MAJOR
 from galaxy.work.context import WorkRequestContext
+import subprocess
 from .execute import (
     execute as execute_job,
     MappingParameters,
 )
 
-import subprocess
 
 log = logging.getLogger(__name__)
 
@@ -826,7 +826,6 @@ class Tool(Dictifiable):
             log.info("**************************GPU ENABLED**********************************************")
             os.environ['GALAXY_GPU_ENABLED'] = "true"
         else:
-            #log.info("**************************GPU DISABLED*********************************************")
             os.environ['GALAXY_GPU_ENABLED'] = "false"
 
         self.docker_env_pass_through = tool_source.parse_docker_env_pass_through()
@@ -1251,7 +1250,7 @@ class Tool(Dictifiable):
                 if value_from:
                     value_from = value_from.split(':')
                     group.value_from = locals().get(value_from[0])
-                    log.debug("TOOL VALUE_REF COMING HERE IS %s",(group.value_ref))
+                    log.debug("TOOL VALUE_REF COMING HERE IS %s", (group.value_ref))
                     for x, y in rval.items():
                         log.debug("%s:%s" % (x, y))
                     group.test_param = rval[group.value_ref]

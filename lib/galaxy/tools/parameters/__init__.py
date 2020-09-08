@@ -11,9 +11,11 @@ from galaxy.util import unicodify
 from galaxy.util.expressions import ExpressionContext
 from galaxy.util.json import safe_loads
 from .basic import DataCollectionToolParameter, DataToolParameter, is_runtime_value, runtime_to_json, SelectToolParameter
-from .grouping import Conditional, Repeat, Section, UploadDataset
 
 import logging
+
+from .grouping import Conditional, Repeat, Section, UploadDataset
+
 log = logging.getLogger(__name__)
 
 

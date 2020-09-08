@@ -23,8 +23,6 @@ from .util.process_groups import (
     kill_pg
 )
 
-import sched, time
-import sys, signal
 import csv
 import shutil
 log = logging.getLogger(__name__)
@@ -114,15 +112,15 @@ class LocalJobRunner(BaseJobRunner):
 
     def post_process(self, log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path):
         # print("\nResults:")
-        File_object = open(log_file_path,"r+")
-        Lines = File_object.readlines() 
+        File_object = open(log_file_path, "r+")
+        Lines = File_object.readlines()
         File_object.close()
         util = []
         util_mem = []
         mem_total = 0
         mem_free = []
         mem_used = []
-        pcie_link_gen_max = 0
+        # pcie_link_gen_max = 0
         pcie_link_gen_cur = []
 
         # lines2 = [v for i, v in enumerate(Lines) if i % 2 == 1]
@@ -136,7 +134,7 @@ class LocalJobRunner(BaseJobRunner):
             mem_total = float(''.join(filter(str.isdigit, lin_list[2])))
             mem_free.append(float(''.join(filter(str.isdigit, lin_list[3]))))
             mem_used.append(float(''.join(filter(str.isdigit, lin_list[4]))))
-            pcie_link_gen_max = float(''.join(filter(str.isdigit, lin_list[5])))
+            # pcie_link_gen_max = float(''.join(filter(str.isdigit, lin_list[5])))
             pcie_link_gen_cur.append(float(''.join(filter(str.isdigit, lin_list[6]))))
 
         # print("Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(util) , max(util) , (sum(util)/len(util))))
@@ -146,7 +144,6 @@ class LocalJobRunner(BaseJobRunner):
         with open(util_path, 'w') as util_file:
             wr = csv.writer(util_file, quoting=csv.QUOTE_ALL)
             wr.writerow(util)
-
 
         # print("Memory Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(util_mem) , max(util_mem) , (sum(util_mem)/len(util_mem))))
         # print("%s" % util_mem)
@@ -179,7 +176,7 @@ class LocalJobRunner(BaseJobRunner):
         # print("PCIe Link Gen Max:")
         # print("%s" % pcie_link_gen_max)
         # print("-------------------------------------------------------------------------------------------------------------------")    
-        
+
         # print("PCIe Link Gen Current: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(pcie_link_gen_cur) , max(pcie_link_gen_cur) , (sum(pcie_link_gen_cur)/len(pcie_link_gen_cur))))
         # print("%s" % pcie_link_gen_cur)
         # print("-------------------------------------------------------------------------------------------------------------------")
@@ -187,18 +184,16 @@ class LocalJobRunner(BaseJobRunner):
         with open(pcie_link_gen_cur_path, 'w') as pcie_link_gen_cur_file:
             wr = csv.writer(pcie_link_gen_cur_file, quoting=csv.QUOTE_ALL)
             wr.writerow(pcie_link_gen_cur)
-        
-        
-        stats_fo = open(stats_path,"w+")
+
+        stats_fo = open(stats_path, "w+")
         stats_out_str = "Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
                         "Memory Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
                         "Total Memory [MiB]: %s\n" \
                         "Free Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
-                        "Used Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" % (min(util), max(util), (sum(util)/len(util)), 
-                        min(util_mem), max(util_mem), (sum(util_mem)/len(util_mem)),
-                        mem_total,
-                        min(mem_free), max(mem_free), (sum(mem_free)/len(mem_free)),
-                        min(mem_used), max(mem_used), (sum(mem_used)/len(mem_used)))
+                        "Used Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" % (min(util), max(util), (sum(util) / len(util)),
+                        min(util_mem), max(util_mem), (sum(util_mem) / len(util_mem)), mem_total,
+                        min(mem_free), max(mem_free), (sum(mem_free) / len(mem_free)),
+                        min(mem_used), max(mem_used), (sum(mem_used) / len(mem_used)))
         stats_fo.write(stats_out_str)
 
     def queue_job(self, job_wrapper):
@@ -216,13 +211,13 @@ class LocalJobRunner(BaseJobRunner):
             stdout_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stdout', dir=job_wrapper.working_directory)
             stderr_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stderr', dir=job_wrapper.working_directory)
             log.debug('({}) executing job script: {}'.format(job_id, command_line))
-            
-            #gpu_stats
+
+            # gpu_stats
             if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
                 # log.info("**************************SUBMIT  GPU ENABLED!!!!!**********************************************")
                 directory = "gpu_util_%s" % tool_name
                 parent_dir = os.getcwd()
-                path = os.path.join(parent_dir, directory) 
+                path = os.path.join(parent_dir, directory)
                 log_file_path = "gpu_util_%s.log" % tool_name
                 log_file_path = os.path.join(path, log_file_path)
                 util_path = os.path.join(path, "util.csv")
@@ -251,7 +246,7 @@ class LocalJobRunner(BaseJobRunner):
                 if os.path.exists(stats_path):
                     os.remove(stats_path)
 
-                File_object = open(log_file_path,"a+")
+                File_object = open(log_file_path, "a+")
                 bash_command = "/bin/bash -c 'nvidia-smi --query-gpu=utilization.gpu,utilization.memory,memory.total,memory.free,memory.used,pcie.link.gen.max,pcie.link.gen.current --format=csv -l 1'"
                 sp = subprocess.Popen(bash_command, shell=True, stdout=File_object, stderr=subprocess.PIPE).pid
                 # sp_pid = sp.pid
@@ -287,24 +282,24 @@ class LocalJobRunner(BaseJobRunner):
                 proc.wait()  # reap
                 if terminated:
                     if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                        os.kill(sp,9)
+                        os.kill(sp, 9)
                         self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                     return
                 elif check_pg(proc.pid):
                     if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                        os.kill(sp,9)
+                        os.kill(sp, 9)
                         self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                     kill_pg(proc.pid)
             finally:
                 with self._proc_lock:
                     if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                        os.kill(sp,9)
+                        os.kill(sp, 9)
                         self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                     self._procs.remove(proc)
 
             if proc.terminated_by_shutdown:
                 if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                    os.kill(sp,9)
+                    os.kill(sp, 9)
                     self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                 self._fail_job_local(job_wrapper, "job terminated by Galaxy shutdown")
                 return
@@ -317,11 +312,11 @@ class LocalJobRunner(BaseJobRunner):
             stderr_file.close()
             log.debug('execution finished: %s' % command_line)
             if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                os.kill(sp,9)
+                os.kill(sp, 9)
                 self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
         except Exception:
             if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
-                os.kill(sp,9)
+                os.kill(sp, 9)
                 self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
             log.exception("failure running job %d", job_wrapper.job_id)
             self._fail_job_local(job_wrapper, "failure running job")

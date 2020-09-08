@@ -1,5 +1,3 @@
-from galaxy.jobs import JobDestination
-from galaxy.jobs.mapper import JobMappingException
 import logging
 import os
 import subprocess
@@ -20,7 +18,8 @@ if gpu_flag == 1:
     nvml.nvmlInit()
     gpu_count = nvml.nvmlDeviceGetCount()
 
-def dynamic_fun(tool,job):
+
+def dynamic_fun(tool, job):
     flag = 0
     os.path.join('GALAXY_GPU_ENABLED', 'false')
     os.environ['GALAXY_GPU_ENABLED'] = "false"

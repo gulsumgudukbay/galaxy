@@ -1,5 +1,6 @@
 # Contains objects for using external display applications
 import logging
+import os
 from collections import OrderedDict
 from copy import deepcopy
 

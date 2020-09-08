@@ -1,8 +1,9 @@
 import json
 import logging
 import os
-import tempfile
 import subprocess
+import tempfile
+
 log = logging.getLogger(__name__)
 
 gpu_flag = 0
@@ -19,8 +20,6 @@ if command_not_found.encode() not in out and command_not_found.encode() not in e
 if gpu_flag == 1:
     nvml.nvmlInit()
     gpu_count = nvml.nvmlDeviceGetCount()
-
-from six import string_types
 
 from galaxy import model
 from galaxy.files import ProvidesUserFileSourcesUserContext
@@ -161,7 +160,7 @@ class ToolEvaluator:
         param_dict['__galaxy_url__'] = self.compute_environment.galaxy_url()
 
         param_dict.update(self.tool.template_macro_params)
-        
+
         os.environ['GALAXY_GPU_ENABLED'] = "false"
         flag = 0
         if self.tool:
@@ -176,11 +175,9 @@ class ToolEvaluator:
                 log.info("**************************GPU DISABLED!!!!!*********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "false"
 
-
         param_dict['__galaxy_gpu_enabled__'] = os.environ['GALAXY_GPU_ENABLED']
-        
         param_dict.update(self.tool.template_macro_params)
-        
+
         # All parameters go into the param_dict
         param_dict.update(incoming)
 
