@@ -94,9 +94,9 @@ class LocalJobRunner(BaseJobRunner):
         # is going to work with other job runners.
         slots = job_wrapper.job_destination.params.get("local_slots", None) or os.environ.get("GALAXY_SLOTS", None)
         if slots:
-            slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % (int(slots)) % os.environ.get("GALAXY_GPU_ENABLED")
+            slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % ((int(slots)) , os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES"))
         else:
-            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % os.environ.get("GALAXY_GPU_ENABLED")
+            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % (os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES")) 
 
         job_id = job_wrapper.get_id_tag()
         job_file = JobState.default_job_file(job_wrapper.working_directory, job_id)
