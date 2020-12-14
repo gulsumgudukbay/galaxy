@@ -33,13 +33,15 @@ def get_gpu_usage(gpu_id):
     all_gpus = []
     print("PROCESSES IN GPU")
     for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
         for proc in p.find("processes").find_all("process_info"):
             print("Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.find("pid").get_text()) )
             proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append(proc.find("pid").get_text())
 
     for x, y in proc_gpu_dict.items():
         all_gpus.append(x)
-        if y == []:
+        print(y)
+        if y == [] or not y or y == ['']:
             avail_gpus.append(x)
 
     print("AVAIL GPUS: %s" % avail_gpus)

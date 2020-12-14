@@ -268,7 +268,7 @@ class LocalJobRunner(BaseJobRunner):
                                     stderr=stderr_file,
                                     env=self._environ,
                                     preexec_fn=os.setpgrp)
-
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'
             proc.terminated_by_shutdown = False
             with self._proc_lock:
                 self._procs.append(proc)
@@ -286,6 +286,7 @@ class LocalJobRunner(BaseJobRunner):
                     if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
                         os.kill(sp, 9)
                         self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
+                        
                     return
                 elif check_pg(proc.pid):
                     if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
