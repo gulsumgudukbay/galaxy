@@ -92,7 +92,6 @@ config/*
 config/plugins/interactive_environments/**/*.ini
 config/plugins/**/.cache
 !config/plugins
-!config/galaxy.yml
 static/welcome.html.*
 static/welcome.html
 static/client_build_hash.txt
@@ -186,3 +185,6 @@ config/plugins/visualizations/**/static/dist
 config/plugins/visualizations/**/static/script.js
 config/plugins/visualizations/**/static/main.css
 config/plugins/visualizations/**/static/plugin_build_hash.txt
+
+#tools
+tools/racon/*

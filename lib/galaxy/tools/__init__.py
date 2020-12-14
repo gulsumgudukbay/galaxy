@@ -109,8 +109,10 @@ from galaxy.util.tool_shed.common_util import (
     get_tool_shed_url_from_tool_shed_registry,
 )
 from galaxy.version import VERSION_MAJOR
-from galaxy.work.context import WorkRequestContext
+
 import subprocess
+
+from galaxy.work.context import WorkRequestContext
 from .execute import (
     execute as execute_job,
     MappingParameters,

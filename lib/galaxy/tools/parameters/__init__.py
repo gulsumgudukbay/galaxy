@@ -10,9 +10,10 @@ from boltons.iterutils import remap
 from galaxy.util import unicodify
 from galaxy.util.expressions import ExpressionContext
 from galaxy.util.json import safe_loads
-from .basic import DataCollectionToolParameter, DataToolParameter, is_runtime_value, runtime_to_json, SelectToolParameter
 
 import logging
+
+from .basic import DataCollectionToolParameter, DataToolParameter, is_runtime_value, runtime_to_json, SelectToolParameter
 
 from .grouping import Conditional, Repeat, Section, UploadDataset
 

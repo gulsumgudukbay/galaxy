@@ -165,7 +165,13 @@ def build_docker_run_command(
     if run_extra_arguments:
         command_parts.append(run_extra_arguments)
 
+    devices = ''
     if os.environ['GALAXY_GPU_ENABLED'] == "true":
+        devices = os.environ['CUDA_VISIBLE_DEVICES']
+    print("\n\n*********DEVICE: %s******************\n\n\n" %devices)
+    if os.environ['GALAXY_GPU_ENABLED'] == "true" and devices != '':
+        command_parts.append("--gpus %s" % devices)
+    elif os.environ['GALAXY_GPU_ENABLED'] == "true":
         command_parts.append("--gpus all")
 
     if set_user:

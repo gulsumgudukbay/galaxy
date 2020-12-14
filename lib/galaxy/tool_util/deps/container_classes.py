@@ -13,12 +13,13 @@ from galaxy.util import (
     asbool,
     in_directory
 )
+
+import subprocess
+
 from . import (
     docker_util,
     singularity_util
 )
-
-import subprocess
 
 from .requirements import (
     DEFAULT_CONTAINER_RESOLVE_DEPENDENCIES,
@@ -310,6 +311,8 @@ class DockerContainer(Container, HasDockerLikeVolumes):
                 env_directives.append('"{}={}"'.format(env, value))
 
         env_directives.append("GALAXY_GPU_ENABLED='%s'" % os.environ['GALAXY_GPU_ENABLED'])
+        if os.environ['GALAXY_GPU_ENABLED'] == 'true':
+            env_directives.append("CUDA_VISIBLE_DEVICES='%s'" % os.environ['CUDA_VISIBLE_DEVICES'])
 
         working_directory = self.job_info.working_directory
         if not working_directory:

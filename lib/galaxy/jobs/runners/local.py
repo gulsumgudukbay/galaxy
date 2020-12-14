@@ -18,12 +18,14 @@ from . import (
     BaseJobRunner,
     JobState
 )
+
+import csv
+
 from .util.process_groups import (
     check_pg,
     kill_pg
 )
 
-import csv
 import shutil
 log = logging.getLogger(__name__)
 
@@ -175,7 +177,7 @@ class LocalJobRunner(BaseJobRunner):
 
         # print("PCIe Link Gen Max:")
         # print("%s" % pcie_link_gen_max)
-        # print("-------------------------------------------------------------------------------------------------------------------")    
+        # print("-------------------------------------------------------------------------------------------------------------------")
 
         # print("PCIe Link Gen Current: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(pcie_link_gen_cur) , max(pcie_link_gen_cur) , (sum(pcie_link_gen_cur)/len(pcie_link_gen_cur))))
         # print("%s" % pcie_link_gen_cur)
@@ -192,8 +194,8 @@ class LocalJobRunner(BaseJobRunner):
                         "Free Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
                         "Used Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" % (min(util), max(util), (sum(util) / len(util)),
                         min(util_mem), max(util_mem), (sum(util_mem) / len(util_mem)), mem_total,
-                        min(mem_free), max(mem_free), (sum(mem_free) / len(mem_free)),
-                        min(mem_used), max(mem_used), (sum(mem_used) / len(mem_used)))
+                            min(mem_free), max(mem_free), (sum(mem_free) / len(mem_free)),
+                            min(mem_used), max(mem_used), (sum(mem_used) / len(mem_used)))
         stats_fo.write(stats_out_str)
 
     def queue_job(self, job_wrapper):
