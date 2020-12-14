@@ -22,9 +22,6 @@ if gpu_flag == 1:
     nvml.nvmlInit()
     gpu_count = nvml.nvmlDeviceGetCount()
 
-
-
-
 def get_gpu_usage(gpu_id):
     bash_command = "/bin/bash -c 'nvidia-smi --query -x'"
     sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -76,7 +73,7 @@ def dynamic_fun(tool, job):
                 for dev in all_gps:
                     gpu_dev_to_exec += dev
                     if dev != all_gps[-1]: # if not last dev insert ','
-                        gpu_dev_to_exec += "'"
+                        gpu_dev_to_exec += ","
 
                 if gpu_id_to_query in avail_gps:
                     gpu_dev_to_exec = gpu_id_to_query
