@@ -58,7 +58,6 @@ def dynamic_fun(tool, job):
     gpu_id_to_query = ""
     gpu_dev_to_exec = ""
     all_gps = []
-    
     avail_gps = []
     if tool:
         reqmnts = tool.requirements
@@ -79,7 +78,12 @@ def dynamic_fun(tool, job):
 
                 if gpu_id_to_query in avail_gps:
                     gpu_dev_to_exec = gpu_id_to_query
-
+                elif gpu_id_to_query not in avail_gps and avail_gps:
+                    gpu_dev_to_exec = ""
+                    for dev in avail_gps:
+                        gpu_dev_to_exec += dev
+                        if dev != avail_gps[-1]: # if not last dev insert ','
+                            gpu_dev_to_exec += ","
                 print(gpu_dev_to_exec)
                 os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
                 print("CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
