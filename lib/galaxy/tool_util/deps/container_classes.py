@@ -40,10 +40,43 @@ if command_not_found.encode() not in out and command_not_found.encode() not in e
     log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
     gpu_flag = 1
     import pynvml as nvml
+    from pynvml.smi import nvidia_smi
+    from bs4 import BeautifulSoup as bs
 
 if gpu_flag == 1:
     nvml.nvmlInit()
     gpu_count = nvml.nvmlDeviceGetCount()
+
+
+#FOR MULTI-GPU Usage
+def get_gpu_usage():
+    bash_command = "/bin/bash -c 'nvidia-smi --query -x'"
+    sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = sp.communicate()
+    soup = bs(out, "lxml")
+
+    proc_gpu_dict = {}
+    avail_gpus = []
+    all_gpus = []
+    print("container_classes.py: PROCESSES IN GPU")
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
+        for proc in p.find("processes").find_all("process_info"):
+            print("container_classes.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.find("pid").get_text()) )
+            proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append(proc.find("pid").get_text())
+
+    for x, y in proc_gpu_dict.items():
+        all_gpus.append(x)
+        print(y)
+        if y == [] or not y or y == ['']:
+            avail_gpus.append(x)
+
+    print("container_classes.py: AVAIL GPUS: %s" % avail_gpus)
+    print("container_classes.py: ALL GPUS: %s" % all_gpus)
+
+    return avail_gpus, all_gpus
+    # return proc_gpu_dict.get(gpu_id), avail_gpus, all_gpus
+
 
 
 LOAD_CACHED_IMAGE_COMMAND_TEMPLATE = r'''
@@ -286,15 +319,45 @@ class DockerContainer(Container, HasDockerLikeVolumes):
 
     def containerize_command(self, command):
         env_directives = []
-
+        flag = 0
+        gpu_id_to_query = ""
+        gpu_dev_to_exec = ""
+        all_gps = []
+        avail_gps = []
+        all_gps_str = ""
         if self.tool_info:
             reqmnts = self.tool_info.requirements
             for req in reqmnts:
                 if req.type == "compute" and req.name == "gpu":
+                    if req.version and req.version != "":
+                        gpu_id_to_query = req.version
                     flag = 1
             if gpu_flag == 1 and gpu_count > 0 and flag == 1:
                 log.info("**************************GPU ENABLED DOCKER**********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
+                if gpu_id_to_query != "":
+                    avail_gps, all_gps = get_gpu_usage()
+                for dev in all_gps:
+                    gpu_dev_to_exec += dev
+                    all_gps_str += dev
+                    if dev != all_gps[-1]: # if not last dev insert ','
+                        gpu_dev_to_exec += ","
+                        all_gps_str += ","
+
+                if gpu_id_to_query in avail_gps:
+                    gpu_dev_to_exec = gpu_id_to_query
+                    print("GPU DEV TO EXEC: %s" % gpu_dev_to_exec)
+                elif gpu_id_to_query not in avail_gps and avail_gps:
+                    gpu_dev_to_exec = ""
+                    for dev in avail_gps:
+                        gpu_dev_to_exec += dev
+                        if dev != avail_gps[-1]: # if not last dev insert ','
+                            gpu_dev_to_exec += ","
+                print("container_classes.py: %s" % gpu_dev_to_exec)
+                os.environ['GPU_DEV_TO_EXEC'] = gpu_dev_to_exec
+                ##os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+                os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
+                print("container_classes.py: CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
             else:
                 log.info("**************************GPU DISABLED DOCKER*********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "false"
@@ -312,7 +375,7 @@ class DockerContainer(Container, HasDockerLikeVolumes):
 
         env_directives.append("GALAXY_GPU_ENABLED='%s'" % os.environ['GALAXY_GPU_ENABLED'])
         if os.environ['GALAXY_GPU_ENABLED'] == 'true':
-            env_directives.append("CUDA_VISIBLE_DEVICES='%s'" % os.environ['CUDA_VISIBLE_DEVICES'])
+            env_directives.append("CUDA_VISIBLE_DEVICES='%s'" % os.environ['GPU_DEV_TO_EXEC'])
 
         working_directory = self.job_info.working_directory
         if not working_directory:

@@ -57,7 +57,7 @@ DEFAULT_POOL_SLEEP_TIME = 1
 DEFAULT_EMBED_METADATA_IN_JOB = True
 
 #FOR MULTI-GPU Usage
-def get_gpu_usage(gpu_id):
+def get_gpu_usage():
     bash_command = "/bin/bash -c 'nvidia-smi --query -x'"
     sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     out, err = sp.communicate()
@@ -66,7 +66,7 @@ def get_gpu_usage(gpu_id):
     proc_gpu_dict = {}
     avail_gpus = []
     all_gpus = []
-    print("local.py: PROCESSES IN GPU")
+
     for p in soup.find("nvidia_smi_log").find_all("gpu"):
         proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
         for proc in p.find("processes").find_all("process_info"):
@@ -79,11 +79,8 @@ def get_gpu_usage(gpu_id):
         if y == [] or not y or y == ['']:
             avail_gpus.append(x)
 
-    print("AVAIL GPUS: %s" % avail_gpus)
-    print("ALL GPUS: %s" % all_gpus)
 
     return avail_gpus, all_gpus
-    # return proc_gpu_dict.get(gpu_id), avail_gpus, all_gpus
 
 
 class LocalJobRunner(BaseJobRunner):
@@ -117,25 +114,41 @@ class LocalJobRunner(BaseJobRunner):
             gpu_dev_to_exec = ""
             all_gps = []
             avail_gps = []
+            all_gps_str = ""
             reqmnts = job_wrapper.tool.requirements
+            containers = job_wrapper.tool.containers
+            docker_req = False
             for req in reqmnts:
+                print("REQUIREMENT: %s" % req)
                 if req.type == "compute" and req.name == "gpu":
                     if req.version and req.version != "":
                         gpu_id_to_query = req.version
                     flag = 1
+
+            if containers:
+                docker_req = True
+                print("CONTAINER" )
+            else:
+                print("NO CONTAINER!")
+
+                #if req.type == 
             if gpu_flag == 1 and gpu_count > 0 and flag == 1:
                 # log.info("**************************CL  GPU ENABLED!!!!!**********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
 
+                 #multi-GPU scheduler
                 if gpu_id_to_query != "":
-                    avail_gps, all_gps = get_gpu_usage(gpu_id_to_query)
+                    avail_gps, all_gps = get_gpu_usage()
                 for dev in all_gps:
                     gpu_dev_to_exec += dev
+                    all_gps_str += dev
                     if dev != all_gps[-1]: # if not last dev insert ','
                         gpu_dev_to_exec += ","
+                        all_gps_str += ","
 
                 if gpu_id_to_query in avail_gps:
                     gpu_dev_to_exec = gpu_id_to_query
+                    print("local.py: GPU_DEV_TO_EXEC: %s" %gpu_dev_to_exec)
                 elif gpu_id_to_query not in avail_gps and avail_gps:
                     gpu_dev_to_exec = ""
                     for dev in avail_gps:
@@ -143,9 +156,17 @@ class LocalJobRunner(BaseJobRunner):
                         if dev != avail_gps[-1]: # if not last dev insert ','
                             gpu_dev_to_exec += ","
                 print("local.py: %s" % gpu_dev_to_exec)
-                os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+                #os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+
+                if docker_req == True:
+                    os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
+                    os.environ['GPU_DEV_TO_EXEC'] = gpu_dev_to_exec
+                else:
+                    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+
                 print("local.py: CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
 
+                ###############end multi-gpu scheduler##############
             else:
                 # log.info("**************************CL  GPU DISABLED!!!!!*********************************************")
                 os.environ['GALAXY_GPU_ENABLED'] = "false"
@@ -153,10 +174,14 @@ class LocalJobRunner(BaseJobRunner):
         # slots would be cleaner name, but don't want deployers to see examples and think it
         # is going to work with other job runners.
         slots = job_wrapper.job_destination.params.get("local_slots", None) or os.environ.get("GALAXY_SLOTS", None)
+        #if slots:
+        #    slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % (int(slots)) % os.environ.get("GALAXY_GPU_ENABLED")
+        #else:
+        #    slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % os.environ.get("GALAXY_GPU_ENABLED")
         if slots:
             slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % ((int(slots)) , os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES"))
         else:
-            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % (os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES")) 
+            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % (os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES"))
 
         job_id = job_wrapper.get_id_tag()
         job_file = JobState.default_job_file(job_wrapper.working_directory, job_id)
@@ -171,6 +196,7 @@ class LocalJobRunner(BaseJobRunner):
         job_file_contents = self.get_job_file(job_wrapper, **job_script_props)
         self.write_executable_script(job_file, job_file_contents)
         return job_file, exit_code_path
+
 
     def post_process(self, log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path):
         # print("\nResults:")
