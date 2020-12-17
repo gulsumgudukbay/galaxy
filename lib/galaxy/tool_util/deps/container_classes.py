@@ -58,24 +58,41 @@ def get_gpu_usage():
     proc_gpu_dict = {}
     avail_gpus = []
     all_gpus = []
-    print("container_classes.py: PROCESSES IN GPU")
+
     for p in soup.find("nvidia_smi_log").find_all("gpu"):
-        proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
+        all_gpus.append(int(p.find("minor_number").get_text()))
+    print("All_gpus:")
+    print(all_gpus)
+    #proc_gpu_dict = dict.fromkeys(all_gpus, []) 
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    print("Proc_gpu_dict:")
+    print(proc_gpu_dict)
+    print("container_classes.py: PROCESSES IN GPU")
+
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        print("Minor number: %d" % int(p.find("minor_number").get_text()))
+        #proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
         for proc in p.find("processes").find_all("process_info"):
             print("container_classes.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.find("pid").get_text()) )
-            proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append(proc.find("pid").get_text())
+            proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.find("pid").get_text())
 
-    for x, y in proc_gpu_dict.items():
-        all_gpus.append(x)
-        print(y)
-        if y == [] or not y or y == ['']:
+        print("added to proc_gpu_dict")
+        print(proc_gpu_dict)
+
+    for x,y in proc_gpu_dict.items():
+    #    all_gpus.append(x)
+        if y == []:
             avail_gpus.append(x)
 
     print("container_classes.py: AVAIL GPUS: %s" % avail_gpus)
     print("container_classes.py: ALL GPUS: %s" % all_gpus)
+    print("container_classes.py: proc_gpu_dict:")
+    print(proc_gpu_dict)
 
     return avail_gpus, all_gpus
-    # return proc_gpu_dict.get(gpu_id), avail_gpus, all_gpus
 
 
 
@@ -333,33 +350,34 @@ class DockerContainer(Container, HasDockerLikeVolumes):
                         gpu_id_to_query = req.version
                     flag = 1
             if gpu_flag == 1 and gpu_count > 0 and flag == 1:
-                log.info("**************************GPU ENABLED DOCKER**********************************************")
+                log.info("GPU ENABLED DOCKER")
                 os.environ['GALAXY_GPU_ENABLED'] = "true"
                 if gpu_id_to_query != "":
                     avail_gps, all_gps = get_gpu_usage()
                 for dev in all_gps:
-                    gpu_dev_to_exec += dev
-                    all_gps_str += dev
+                    gpu_dev_to_exec += str(dev)
+                    all_gps_str += str(dev)
                     if dev != all_gps[-1]: # if not last dev insert ','
                         gpu_dev_to_exec += ","
                         all_gps_str += ","
 
-                if gpu_id_to_query in avail_gps:
+                if int(gpu_id_to_query) in avail_gps:
                     gpu_dev_to_exec = gpu_id_to_query
                     print("GPU DEV TO EXEC: %s" % gpu_dev_to_exec)
-                elif gpu_id_to_query not in avail_gps and avail_gps:
+                elif int(gpu_id_to_query) not in avail_gps and avail_gps:
                     gpu_dev_to_exec = ""
                     for dev in avail_gps:
-                        gpu_dev_to_exec += dev
+                        gpu_dev_to_exec += str(dev)
                         if dev != avail_gps[-1]: # if not last dev insert ','
                             gpu_dev_to_exec += ","
                 print("container_classes.py: %s" % gpu_dev_to_exec)
                 os.environ['GPU_DEV_TO_EXEC'] = gpu_dev_to_exec
-                ##os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
-                os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
+                os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+                #os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
                 print("container_classes.py: CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
             else:
-                log.info("**************************GPU DISABLED DOCKER*********************************************")
+                log.info("GPU DISABLED DOCKER")
+
                 os.environ['GALAXY_GPU_ENABLED'] = "false"
 
         for pass_through_var in self.tool_info.env_pass_through:
