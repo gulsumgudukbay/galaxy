@@ -1,0 +1,180 @@
+<?xml version="1.0"?>
+<tool id="bonito_basecaller" name="bonito basecalling tool" version="@TOOL_VERSION@+galaxy0" profile="@PROFILE@">
+    <description>Pytorch based basecalling for Oxford Nanopore Technologies data</description>
+    <macros>
+        <import>macros.xml</import>
+    </macros>
+
+    <expand macro="requirements"/>
+    <expand macro="version_command"/>
+
+    <command detect_errors="exit_code"><![CDATA[
+#if $align.align_reads == "Yes":
+    #if $align.reference_source.reference_source_selector == 'history':
+        ln -f -s '$align.reference_source.ref_file' reference.fa &&
+    #else:
+        ln -f -s '$align.reference_source.ref_file.fields.path' reference.fa &&
+    #end if
+#end if
+
+@INITIALIZE@
+
+#if $align.align_reads == "Yes":
+    && BAM_FILES=()
+    && COUNTER=0
+#else:
+    && touch 'output.$output_format'
+#end if
+
+&& echo "Iterating over sub-directories of \${CWD}/data"
+&& DIRS=\$(find "\${CWD}/data" -type d)
+
+&& for DIR in \${DIRS[@]} ; 
+do  
+    echo "Running on .fast5 files in \$DIR"
+    && FAST5S=\$(find \${DIR}/ -type f -maxdepth 1) 2> /dev/null
+    && if [ -z "\$FAST5S" ]; then  echo "No .fast5 files in \${DIR}/" && continue; fi 
+    ## Run bonito on this directory since there are fast5s here
+    && bonito basecaller
+    #if $align.align_reads == "Yes":
+        --reference '$align_reads.reference'
+        #if $save_ctc:
+            --save-ctc
+            --ctc-min-coverage '$ctc_min_coverage'
+            --ctc-min-accuracy '$ctc_min_accuracy'
+        #end if
+    #end if 
+    #if $read_ids:
+        --read-ids '$read_ids'
+    #end if
+    #if $device:
+        --device '$device'
+    #end if
+    #if $weights:
+        --weights '$weights'
+    #end if
+    #if $skip == "skip":
+        --skip
+    #end if
+    #if $output_format == "fastq":
+        --fastq
+    #end if
+    '$model' 
+    \${DIR}
+    #if $align.align_reads == "Yes":
+        > "temp_\${COUNTER}.sam"
+        && echo "Converting temp_\${COUNTER}.sam to temp_\${COUNTER}.bam"
+        && samtools sort "temp_\${COUNTER}.sam" > "temp_\${COUNTER}.bam"
+        && samtools index "temp_\${COUNTER}.bam"
+        && BAM_FILES+=("temp_\${COUNTER}.bam")
+        && ((COUNTER++))
+    #else:
+        >> 'output.$output_format'
+    #end if
+;
+done
+
+#if $align.align_reads == "Yes":
+    && echo "Merging the following bam files: \${BAM_FILES[@]}"
+    && samtools merge $out_bam \${BAM_FILES[@]}
+#end if
+]]></command>
+    <inputs>
+        <expand macro="model" label="Model to use in the basecalling"/>
+        <expand macro="input_fast5"/>
+        <conditional name="align">
+            <param name="align_reads" type="select" label="Align reads to reference? (Output will be in BAM format)">
+                <option value="No" selected="True">No</option>
+                <option value="Yes">Yes</option>
+            </param>
+            <when value="Yes">
+                <expand macro="reference"/>
+                <conditional name="ctc">
+                    <param name="save_ctc" type="select" label="Save CTC data for custom model training?">
+                        <option value="No" selected="True">No</option>
+                        <option value="Yes">Yes</option>
+                    </param>
+                    <when value="Yes">
+                        <param name="ctc_min_coverage" type="float" value="0.9"/>
+                        <param name="ctc_min_accuracy" type="float" value="0.9"/>
+                    </when>
+                    <when value="No"/>
+                </conditional>
+            </when>
+            <when value="No"/>
+        </conditional>
+        <param name="output_format" type="select" label="Output format for basecalled reads - If reads are being aligned the resulting BAM file will have quality scores for the reads if FASTQ is selected">
+            <option value="fasta" selected="True">FASTA</option>
+            <option value="fastq">FASTQ</option>
+        </param>
+        <param name="device" type="select" label="What device should be used to do the basecalling?">
+            <option value="cuda" selected="True">GPU</option>
+            <option value="cpu">CPU</option>
+        </param>
+        <param name="weights" type="integer" value="0" min="0"/>
+        <param name="read_ids" type="data" format="txt,tsv" optional="True" label="File with read_ids (in the first column) to either skip or keep (as determined by the skip parameter)"/>
+        <param name="skip" type="select" label="What to do with the reads provided in read_ids parameter">
+            <option value="keep" selected="True">Keep only the reads in read_ids</option>
+            <option value="skip">Skip the reads in read_ids</option>
+        </param>
+    </inputs>
+    <outputs>
+        <data name="out_fasta" format="fasta" label="${tool.name} on ${on_string} : FASTA" from_work_dir="output.fasta">
+            <filter>align["align_reads"] == "No" and output_format == "fasta"</filter>
+        </data>
+        <data name="out_fastq" format="fastq" label="${tool.name} on ${on_string} : FASTQ" from_work_dir="output.fastq">
+            <filter>align["align_reads"] == "No" and output_format == "fastq"</filter>
+        </data>
+        <data name="out_bam" format="bam" label="${tool.name} on ${on_string} : BAM">
+            <filter>align["align_reads"] == "Yes"</filter>
+        </data>
+    </outputs>
+    <tests>
+        <!-- #1 fasta, gpu-->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #2 fastq, gpu-->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #3 sam, gpu-->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #3 sam, ctc output-->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #3 fasta, skip reads -->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #3 fasta, keep reads -->
+        <test expect_num_outputs="1">
+        </test>
+        <!-- #3 fasta, cpu-->
+        <test expect_num_outputs="1">
+        </test>
+    </tests>
+    <help><![CDATA[
+.. class:: infomark
+
+**What it does**
+
+@WID@
+
+The module *basecaller* converts fast5 data to basecalled FASTA/Q reads.
+
+**Input**
+- fast5 data
+
+**Optional Inputs**
+- reference sequence (FASTA)
+- reads ids file of reads to keep or skip (depending on set parameters)
+
+**Output**
+
+- basecalled reads (FAST(A|Q) | SAM)
+
+**References**
+
+@REFERENCES@
+    ]]></help>
+    <expand macro="citations"/>
+</tool>

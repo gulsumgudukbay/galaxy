@@ -92,14 +92,27 @@ def get_gpu_usage(gpu_id):
         if y == []:
             avail_gpus.append(x)
 
+    proc_gpu_dict = {}
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    #FOR MULTI-GPU Usage PMEM Approach  
+    #if all of the gpus have at least one process running on them, allocate minimum memory usage gpu
+    if len(avail_gpus) == 0:
+        for p in soup.find("nvidia_smi_log").find_all("gpu"):
+            for proc in p.find("fb_memory_usage").find_all("used"):
+                print("local.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.get_text()) )
+                proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.get_text())
+
+        avail_gpus.append(min(proc_gpu_dict.items(), key=lambda x: x[1])[0])
+
     print("local.py: AVAIL GPUS: %s" % avail_gpus)
     print("local.py: ALL GPUS: %s" % all_gpus)
     print("proc_gpu_dict:")
     print(proc_gpu_dict)
 
     return avail_gpus, all_gpus
-    # return proc_gpu_dict.get(gpu_id), avail_gpus, all_gpus
-
 
 
 class LocalJobRunner(BaseJobRunner):
