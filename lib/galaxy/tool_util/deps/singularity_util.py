@@ -64,6 +64,8 @@ def build_singularity_run_command(
         command_parts.extend(["--home", f"{home}:{home}"])
     if run_extra_arguments:
         command_parts.append(run_extra_arguments)
+    if os.environ['GALAXY_GPU_ENABLED'] == "true":
+        command_parts.append("--nv")
     full_image = image
     command_parts.append(shlex.quote(full_image))
     command_parts.append(container_command)

@@ -1,5 +1,7 @@
 # Contains objects for using external display applications
 import logging
+import os
+from collections import OrderedDict
 from copy import deepcopy
 from urllib.parse import quote_plus
 
@@ -77,6 +79,7 @@ class DisplayApplicationLink:
         other_values = self.get_inital_values(data, trans)
         other_values['DATASET_HASH'] = dataset_hash
         other_values['USER_HASH'] = user_hash
+        other_values['GPU_ENABLED'] = os.environ['GALAXY_GPU_ENABLED']
         ready = True
         for name, param in self.parameters.items():
             assert name not in other_values, f"The display parameter '{name}' has been defined more than once."

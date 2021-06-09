@@ -1,6 +1,7 @@
 """
 Classes encapsulating Galaxy tool parameters.
 """
+from __future__ import print_function
 
 from json import dumps
 
@@ -18,6 +19,9 @@ from .basic import (
     SelectToolParameter,
 )
 from .grouping import Conditional, Repeat, Section, UploadDataset
+import logging
+log = logging.getLogger(__name__)
+
 
 REPLACE_ON_TRUTHY = object()
 
@@ -141,7 +145,7 @@ def visit_input_values(inputs, input_values, callback, name_prefix='', label_pre
             replace = new_value != no_replacement_value
         if replace:
             input_values[input.name] = new_value
-        elif replace_optional_connections and is_runtime_value(value) and hasattr(input, 'value'):
+        elif replace_optional_connections and is_runtime_value(value):
             input_values[input.name] = input.value
 
     def get_current_case(input, input_values):
@@ -200,7 +204,7 @@ def check_param(trans, param, incoming_value, param_values, simple_errors=True):
     return value, error
 
 
-def params_to_strings(params, param_values, app, nested=False, use_security=False):
+def params_to_strings(params, param_values, app, nested=False):
     """
     Convert a dictionary of parameter values to a dictionary of strings
     suitable for persisting. The `value_to_basic` method of each parameter
@@ -438,6 +442,7 @@ def _populate_state_legacy(request_context, inputs, incoming, state, errors, pre
                     group_state['__current_case__'] = current_case
                 except Exception:
                     errors[test_param_key] = 'The selected case is unavailable/invalid.'
+                    pass
             group_state[input.test_param.name] = value
         elif input.type == 'section':
             _populate_state_legacy(request_context, input.inputs, incoming, group_state, errors, prefix=group_prefix, context=context, check=check, simple_errors=simple_errors)

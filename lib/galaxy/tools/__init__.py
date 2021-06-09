@@ -112,8 +112,22 @@ from .execute import (
     MappingParameters,
 )
 
-
+import subprocess
 log = logging.getLogger(__name__)
+
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
+    gpu_flag = 1
+    import pynvml as nvml
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
 
 REQUIRES_JS_RUNTIME_MESSAGE = ("The tool [%s] requires a nodejs runtime to execute "
                                "but node or nodejs could not be found. Please contact the Galaxy adminstrator")
@@ -845,6 +859,19 @@ class Tool(Dictifiable):
                     break
         self.home_target = home_target
         self.tmp_target = tmp_target
+
+        requirements, containers = tool_source.parse_requirements_and_containers()
+        flag = 0
+        reqmnts = requirements
+        for req in reqmnts:
+            if req.type == "compute" and req.name == "gpu":
+                flag = 1
+        if gpu_flag == 1 and gpu_count > 0 and flag == 1:
+            log.info("**************************GPU ENABLED**********************************************")
+            os.environ['GALAXY_GPU_ENABLED'] = "true"
+        else:
+            os.environ['GALAXY_GPU_ENABLED'] = "false"
+
         self.docker_env_pass_through = tool_source.parse_docker_env_pass_through()
         if self.environment_variables:
             if not self.docker_env_pass_through:
@@ -1272,6 +1299,9 @@ class Tool(Dictifiable):
                 if value_from:
                     value_from = value_from.split(':')
                     group.value_from = locals().get(value_from[0])
+                    log.debug("TOOL VALUE_REF COMING HERE IS %s", (group.value_ref))
+                    for x, y in rval.items():
+                        log.debug("%s:%s" % (x, y))
                     group.test_param = rval[group.value_ref]
                     group.test_param.refresh_on_change = True
                     for attr in value_from[1].split('.'):

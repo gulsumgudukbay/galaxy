@@ -18,12 +18,36 @@ from . import (
     BaseJobRunner,
     JobState
 )
+
+import csv
+
 from .util.process_groups import (
     check_pg,
     kill_pg
 )
 
+import shutil
+
+
+
 log = logging.getLogger(__name__)
+
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
+    gpu_flag = 1
+    import pynvml as nvml
+    from pynvml.smi import nvidia_smi
+    from bs4 import BeautifulSoup as bs
+
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
 
 __all__ = ('LocalJobRunner', )
 
@@ -31,6 +55,64 @@ DEFAULT_POOL_SLEEP_TIME = 1
 # TODO: Set to false and just get rid of this option. It would simplify this
 # class nicely. -John
 DEFAULT_EMBED_METADATA_IN_JOB = True
+
+#FOR MULTI-GPU Usage
+def get_gpu_usage(gpu_id):
+    bash_command = "/bin/bash -c 'nvidia-smi --query -x'"
+    sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = sp.communicate()
+    soup = bs(out, "lxml")
+
+    proc_gpu_dict = {}
+    avail_gpus = []
+    all_gpus = []
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        all_gpus.append(int(p.find("minor_number").get_text()))
+
+    #proc_gpu_dict = dict.fromkeys(all_gpus, [])
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    print("Proc_gpu_dict:")
+    print(proc_gpu_dict)
+
+    print("local.py: PROCESSES IN GPU")
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        #proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
+        for proc in p.find("processes").find_all("process_info"):
+            print("local.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.find("pid").get_text()) )
+            proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.find("pid").get_text())
+            print("added to proc_gpu_dict")
+            print(proc_gpu_dict)
+
+    for x, y in proc_gpu_dict.items():
+        #all_gpus.append(x)
+        #print(y)
+        if y == []:
+            avail_gpus.append(x)
+
+    proc_gpu_dict = {}
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    #FOR MULTI-GPU Usage PMEM Approach  
+    #if all of the gpus have at least one process running on them, allocate minimum memory usage gpu
+    if len(avail_gpus) == 0:
+        for p in soup.find("nvidia_smi_log").find_all("gpu"):
+            for proc in p.find("fb_memory_usage").find_all("used"):
+                print("local.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.get_text()) )
+                proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.get_text())
+
+        avail_gpus.append(min(proc_gpu_dict.items(), key=lambda x: x[1])[0])
+
+    print("local.py: AVAIL GPUS: %s" % avail_gpus)
+    print("local.py: ALL GPUS: %s" % all_gpus)
+    print("proc_gpu_dict:")
+    print(proc_gpu_dict)
+
+    return avail_gpus, all_gpus
 
 
 class LocalJobRunner(BaseJobRunner):
@@ -58,14 +140,82 @@ class LocalJobRunner(BaseJobRunner):
         """
         """
         command_line = job_wrapper.runner_command_line
+        if job_wrapper.tool:
+            flag = 0
+            gpu_id_to_query = ""
+            gpu_dev_to_exec = ""
+            all_gps = []
+            avail_gps = []
+            all_gps_str = ""
+            reqmnts = job_wrapper.tool.requirements
+            containers = job_wrapper.tool.containers
+            docker_req = False
+            for req in reqmnts:
+                print("REQUIREMENT: %s" % req)
+                if req.type == "compute" and req.name == "gpu":
+                    if req.version and req.version != "":
+                        gpu_id_to_query = req.version
+                    flag = 1
+
+            if containers:
+                docker_req = True
+                print("CONTAINER" )
+            else:
+                print("NO CONTAINER!")
+
+                #if req.type == 
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
+                # log.info("**************************CL  GPU ENABLED!!!!!**********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "true"
+
+                #multi-GPU scheduler
+                if gpu_id_to_query != "":
+                    avail_gps, all_gps = get_gpu_usage(gpu_id_to_query)
+                for dev in all_gps:
+                    gpu_dev_to_exec += str(dev)
+                    all_gps_str += str(dev)
+                    if dev != all_gps[-1]: # if not last dev insert ','
+                        gpu_dev_to_exec += ","
+                        all_gps_str += ","
+
+                if int(gpu_id_to_query) in avail_gps:
+                    gpu_dev_to_exec = gpu_id_to_query
+                    print("local.py: GPU_DEV_TO_EXEC: %s" %gpu_dev_to_exec)
+                elif int(gpu_id_to_query) not in avail_gps and avail_gps:
+                    gpu_dev_to_exec = ""
+                    for dev in avail_gps:
+                        gpu_dev_to_exec += str(dev)
+                        if dev != avail_gps[-1]: # if not last dev insert ','
+                            gpu_dev_to_exec += ","
+                print("local.py: %s" % gpu_dev_to_exec)
+                #os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+
+                if docker_req == True:
+                    #os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
+                    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+                    os.environ['GPU_DEV_TO_EXEC'] = gpu_dev_to_exec
+                else:
+                    os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+
+                print("local.py: CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
+
+                ###############end multi-gpu scheduler##############
+
+            else:
+                # log.info("**************************CL  GPU DISABLED!!!!!*********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "false"
 
         # slots would be cleaner name, but don't want deployers to see examples and think it
         # is going to work with other job runners.
         slots = job_wrapper.job_destination.params.get("local_slots", None) or os.environ.get("GALAXY_SLOTS", None)
+        #if slots:
+        #    slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % (int(slots)) % os.environ.get("GALAXY_GPU_ENABLED")
+        #else:
+        #    slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED;' % os.environ.get("GALAXY_GPU_ENABLED")
         if slots:
-            slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED;' % (int(slots))
+            slots_statement = 'GALAXY_SLOTS="%d"; export GALAXY_SLOTS; GALAXY_SLOTS_CONFIGURED="1"; export GALAXY_SLOTS_CONFIGURED; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % ((int(slots)) , os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES"))
         else:
-            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS;'
+            slots_statement = 'GALAXY_SLOTS="1"; export GALAXY_SLOTS; GALAXY_GPU_ENABLED="%s"; export GALAXY_GPU_ENABLED; CUDA_VISIBLE_DEVICES="%s"; export CUDA_VISIBLE_DEVICES;' % (os.environ.get("GALAXY_GPU_ENABLED"), os.environ.get("CUDA_VISIBLE_DEVICES"))
 
         job_id = job_wrapper.get_id_tag()
         job_file = JobState.default_job_file(job_wrapper.working_directory, job_id)
@@ -81,6 +231,93 @@ class LocalJobRunner(BaseJobRunner):
         self.write_executable_script(job_file, job_file_contents)
         return job_file, exit_code_path
 
+
+    def post_process(self, log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path):
+        # print("\nResults:")
+        File_object = open(log_file_path, "r+")
+        Lines = File_object.readlines()
+        File_object.close()
+        util = []
+        util_mem = []
+        mem_total = 0
+        mem_free = []
+        mem_used = []
+        # pcie_link_gen_max = 0
+        pcie_link_gen_cur = []
+
+        # lines2 = [v for i, v in enumerate(Lines) if i % 2 == 1]
+        lines2 = [v for i, v in enumerate(Lines) if i % 1 == 0 and i != 0]
+
+        for lin in lines2:
+            lin_list = lin.split(",")
+
+            util.append(float(''.join(filter(str.isdigit, lin_list[0]))))
+            util_mem.append(float(''.join(filter(str.isdigit, lin_list[1]))))
+            mem_total = float(''.join(filter(str.isdigit, lin_list[2])))
+            mem_free.append(float(''.join(filter(str.isdigit, lin_list[3]))))
+            mem_used.append(float(''.join(filter(str.isdigit, lin_list[4]))))
+            # pcie_link_gen_max = float(''.join(filter(str.isdigit, lin_list[5])))
+            pcie_link_gen_cur.append(float(''.join(filter(str.isdigit, lin_list[6]))))
+
+        # print("Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(util) , max(util) , (sum(util)/len(util))))
+        # print("%s" % util)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        with open(util_path, 'w') as util_file:
+            wr = csv.writer(util_file, quoting=csv.QUOTE_ALL)
+            wr.writerow(util)
+
+        # print("Memory Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(util_mem) , max(util_mem) , (sum(util_mem)/len(util_mem))))
+        # print("%s" % util_mem)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        with open(util_mem_path, 'w') as util_mem_file:
+            wr = csv.writer(util_mem_file, quoting=csv.QUOTE_ALL)
+            wr.writerow(util_mem)
+
+        # print("Total Memory [MiB]:")
+        # print("%s" % mem_total)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        # print("Free Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(mem_free) , max(mem_free) , (sum(mem_free)/len(mem_free))))
+        # print("%s" % mem_free)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        with open(mem_free_path, 'w') as mem_free_file:
+            wr = csv.writer(mem_free_file, quoting=csv.QUOTE_ALL)
+            wr.writerow(mem_free)
+
+        # print("Used Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(mem_used) , max(mem_used) , (sum(mem_used)/len(mem_used))))
+        # print("%s" % mem_used)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        with open(mem_used_path, 'w') as mem_used_file:
+            wr = csv.writer(mem_used_file, quoting=csv.QUOTE_ALL)
+            wr.writerow(mem_used)
+
+        # print("PCIe Link Gen Max:")
+        # print("%s" % pcie_link_gen_max)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        # print("PCIe Link Gen Current: Min:%.3f, Max:%.3f, Mean:%.3f" % (min(pcie_link_gen_cur) , max(pcie_link_gen_cur) , (sum(pcie_link_gen_cur)/len(pcie_link_gen_cur))))
+        # print("%s" % pcie_link_gen_cur)
+        # print("-------------------------------------------------------------------------------------------------------------------")
+
+        with open(pcie_link_gen_cur_path, 'w') as pcie_link_gen_cur_file:
+            wr = csv.writer(pcie_link_gen_cur_file, quoting=csv.QUOTE_ALL)
+            wr.writerow(pcie_link_gen_cur)
+
+        stats_fo = open(stats_path, "w+")
+        stats_out_str = "Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
+                        "Memory Utilization Percentage: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
+                        "Total Memory [MiB]: %s\n" \
+                        "Free Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" \
+                        "Used Memory [MiB]: Min:%.3f, Max:%.3f, Mean:%.3f\n" % (min(util), max(util), (sum(util) / len(util)),
+                        min(util_mem), max(util_mem), (sum(util_mem) / len(util_mem)), mem_total,
+                            min(mem_free), max(mem_free), (sum(mem_free) / len(mem_free)),
+                            min(mem_used), max(mem_used), (sum(mem_used) / len(mem_used)))
+        stats_fo.write(stats_out_str)
+
     def queue_job(self, job_wrapper):
         if not self._prepare_job_local(job_wrapper):
             return
@@ -90,11 +327,57 @@ class LocalJobRunner(BaseJobRunner):
         # command line has been added to the wrapper by prepare_job()
         job_file, exit_code_path = self.__command_line(job_wrapper)
         job_id = job_wrapper.get_id_tag()
+        tool_name = "%s_%s" % (job_wrapper.tool.id, job_id)
 
         try:
             stdout_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stdout', dir=job_wrapper.working_directory)
             stderr_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stderr', dir=job_wrapper.working_directory)
             log.debug(f'({job_id}) executing job script: {job_file}')
+            log.debug('({}) executing job script: {}'.format(job_id, command_line))
+
+            # gpu_stats
+            if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                # log.info("**************************SUBMIT  GPU ENABLED!!!!!**********************************************")
+                directory = "gpu_util_%s" % tool_name
+                parent_dir = os.getcwd()
+                path = os.path.join(parent_dir, directory)
+                log_file_path = "gpu_util_%s.log" % tool_name
+                log_file_path = os.path.join(path, log_file_path)
+                util_path = os.path.join(path, "util.csv")
+                util_mem_path = os.path.join(path, "util_mem.csv")
+                mem_free_path = os.path.join(path, "mem_free.csv")
+                mem_used_path = os.path.join(path, "mem_used.csv")
+                pcie_link_gen_cur_path = os.path.join(path, "pcie_link_gen_cur.csv")
+                stats_path = os.path.join(path, "stats_%s" % tool_name)
+
+                if os.path.exists(path):
+                    shutil.rmtree(path)
+
+                os.mkdir(path)
+                if os.path.exists(log_file_path):
+                    os.remove(log_file_path)
+                if os.path.exists(util_path):
+                    os.remove(util_path)
+                if os.path.exists(util_mem_path):
+                    os.remove(util_mem_path)
+                if os.path.exists(mem_free_path):
+                    os.remove(mem_free_path)
+                if os.path.exists(mem_used_path):
+                    os.remove(mem_used_path)
+                if os.path.exists(pcie_link_gen_cur_path):
+                    os.remove(pcie_link_gen_cur_path)
+                if os.path.exists(stats_path):
+                    os.remove(stats_path)
+
+                File_object = open(log_file_path, "a+")
+                bash_command = "/bin/bash -c 'nvidia-smi --query-gpu=utilization.gpu,utilization.memory,memory.total,memory.free,memory.used,pcie.link.gen.max,pcie.link.gen.current --format=csv -l 1'"
+                sp = subprocess.Popen(bash_command, shell=True, stdout=File_object, stderr=subprocess.PIPE).pid
+                # sp_pid = sp.pid
+                # out_str = sp.communicate()
+                # print("%s" % out_str[0])
+                # File_object.write(out_str[0].__str__())
+                File_object.close()
+
             # The preexec_fn argument of Popen() is used to call os.setpgrp() in
             # the child process just before the child is executed. This will set
             # the PGID of the child process to its PID (i.e. ensures that it is
@@ -105,7 +388,7 @@ class LocalJobRunner(BaseJobRunner):
                                     stderr=stderr_file,
                                     env=self._environ,
                                     preexec_fn=os.setpgrp)
-
+            os.environ['CUDA_VISIBLE_DEVICES'] = '0'
             proc.terminated_by_shutdown = False
             with self._proc_lock:
                 self._procs.append(proc)
@@ -120,14 +403,27 @@ class LocalJobRunner(BaseJobRunner):
                 terminated = self.__poll_if_needed(proc, job_wrapper, job_id)
                 proc.wait()  # reap
                 if terminated:
+                    if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                        os.kill(sp, 9)
+                        self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
+                        
                     return
                 elif check_pg(proc.pid):
+                    if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                        os.kill(sp, 9)
+                        self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                     kill_pg(proc.pid)
             finally:
                 with self._proc_lock:
+                    if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                        os.kill(sp, 9)
+                        self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                     self._procs.remove(proc)
 
             if proc.terminated_by_shutdown:
+                if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                    os.kill(sp, 9)
+                    self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
                 self._fail_job_local(job_wrapper, "job terminated by Galaxy shutdown")
                 return
 
@@ -138,7 +434,14 @@ class LocalJobRunner(BaseJobRunner):
             stdout_file.close()
             stderr_file.close()
             log.debug(f'execution finished: {job_file}')
+            log.debug('execution finished: %s' % command_line)
+            if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                os.kill(sp, 9)
+                self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
         except Exception:
+            if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
+                os.kill(sp, 9)
+                self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
             log.exception("failure running job %d", job_wrapper.job_id)
             self._fail_job_local(job_wrapper, "failure running job")
             return

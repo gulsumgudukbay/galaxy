@@ -13,10 +13,14 @@ from galaxy.util import (
     asbool,
     in_directory
 )
+
+import subprocess
+
 from . import (
     docker_util,
     singularity_util
 )
+
 from .requirements import (
     DEFAULT_CONTAINER_RESOLVE_DEPENDENCIES,
     DEFAULT_CONTAINER_SHELL,
@@ -26,6 +30,86 @@ log = getLogger(__name__)
 
 DOCKER_CONTAINER_TYPE = "docker"
 SINGULARITY_CONTAINER_TYPE = "singularity"
+
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
+    gpu_flag = 1
+    import pynvml as nvml
+    from pynvml.smi import nvidia_smi
+    from bs4 import BeautifulSoup as bs
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
+
+
+#FOR MULTI-GPU Usage
+def get_gpu_usage():
+    bash_command = "/bin/bash -c 'nvidia-smi --query -x'"
+    sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    out, err = sp.communicate()
+    soup = bs(out, "lxml")
+
+    proc_gpu_dict = {}
+    avail_gpus = []
+    all_gpus = []
+
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        all_gpus.append(int(p.find("minor_number").get_text()))
+    print("All_gpus:")
+    print(all_gpus)
+    #proc_gpu_dict = dict.fromkeys(all_gpus, []) 
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    print("Proc_gpu_dict:")
+    print(proc_gpu_dict)
+    print("container_classes.py: PROCESSES IN GPU")
+
+    for p in soup.find("nvidia_smi_log").find_all("gpu"):
+        print("Minor number: %d" % int(p.find("minor_number").get_text()))
+        #proc_gpu_dict.setdefault((p.find("minor_number").get_text()), []).append("")
+        for proc in p.find("processes").find_all("process_info"):
+            print("container_classes.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.find("pid").get_text()) )
+            proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.find("pid").get_text())
+
+        print("added to proc_gpu_dict")
+        print(proc_gpu_dict)
+
+    for x,y in proc_gpu_dict.items():
+    #    all_gpus.append(x)
+        if y == []:
+            avail_gpus.append(x)
+    
+    proc_gpu_dict = {}
+
+    for gp in all_gpus:
+        proc_gpu_dict.setdefault(gp, [])
+
+    #FOR MULTI-GPU Usage PMEM Approach  
+    #if all of the gpus have at least one process running on them, allocate minimum memory usage gpu
+    if len(avail_gpus) == 0:
+        for p in soup.find("nvidia_smi_log").find_all("gpu"):
+            for proc in p.find("fb_memory_usage").find_all("used"):
+                print("local.py: Adding: {%s:%s}" % (p.find("minor_number").get_text(), proc.get_text()) )
+                proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.get_text())
+
+        avail_gpus.append(min(proc_gpu_dict.items(), key=lambda x: x[1])[0])
+
+    print("container_classes.py: AVAIL GPUS: %s" % avail_gpus)
+    print("container_classes.py: ALL GPUS: %s" % all_gpus)
+    print("container_classes.py: proc_gpu_dict:")
+    print(proc_gpu_dict)
+
+    return avail_gpus, all_gpus
+
+
 
 LOAD_CACHED_IMAGE_COMMAND_TEMPLATE = r'''
 python << EOF
@@ -281,6 +365,50 @@ class DockerContainer(Container, HasDockerLikeVolumes):
 
     def containerize_command(self, command):
         env_directives = []
+        flag = 0
+        gpu_id_to_query = ""
+        gpu_dev_to_exec = ""
+        all_gps = []
+        avail_gps = []
+        all_gps_str = ""
+        if self.tool_info:
+            reqmnts = self.tool_info.requirements
+            for req in reqmnts:
+                if req.type == "compute" and req.name == "gpu":
+                    if req.version and req.version != "":
+                        gpu_id_to_query = req.version
+                    flag = 1
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
+                log.info("GPU ENABLED DOCKER")
+                os.environ['GALAXY_GPU_ENABLED'] = "true"
+                if gpu_id_to_query != "":
+                    avail_gps, all_gps = get_gpu_usage()
+                for dev in all_gps:
+                    gpu_dev_to_exec += str(dev)
+                    all_gps_str += str(dev)
+                    if dev != all_gps[-1]: # if not last dev insert ','
+                        gpu_dev_to_exec += ","
+                        all_gps_str += ","
+
+                if int(gpu_id_to_query) in avail_gps:
+                    gpu_dev_to_exec = gpu_id_to_query
+                    print("GPU DEV TO EXEC: %s" % gpu_dev_to_exec)
+                elif int(gpu_id_to_query) not in avail_gps and avail_gps:
+                    gpu_dev_to_exec = ""
+                    for dev in avail_gps:
+                        gpu_dev_to_exec += str(dev)
+                        if dev != avail_gps[-1]: # if not last dev insert ','
+                            gpu_dev_to_exec += ","
+                print("container_classes.py: %s" % gpu_dev_to_exec)
+                os.environ['GPU_DEV_TO_EXEC'] = gpu_dev_to_exec
+                os.environ['CUDA_VISIBLE_DEVICES'] = gpu_dev_to_exec
+                #os.environ['CUDA_VISIBLE_DEVICES'] = all_gps_str
+                print("container_classes.py: CUDA_VISIBLE_DEVICES: %s" % os.environ['CUDA_VISIBLE_DEVICES'])
+            else:
+                log.info("GPU DISABLED DOCKER")
+
+                os.environ['GALAXY_GPU_ENABLED'] = "false"
+
         for pass_through_var in self.tool_info.env_pass_through:
             env_directives.append(f'"{pass_through_var}=${pass_through_var}"')
 
@@ -291,6 +419,10 @@ class DockerContainer(Container, HasDockerLikeVolumes):
             if key.startswith("docker_env_"):
                 env = key[len("docker_env_"):]
                 env_directives.append(f'"{env}={value}"')
+
+        env_directives.append("GALAXY_GPU_ENABLED='%s'" % os.environ['GALAXY_GPU_ENABLED'])
+        if os.environ['GALAXY_GPU_ENABLED'] == 'true':
+            env_directives.append("CUDA_VISIBLE_DEVICES='%s'" % os.environ['GPU_DEV_TO_EXEC'])
 
         working_directory = self.job_info.working_directory
         if not working_directory:
@@ -396,6 +528,19 @@ class SingularityContainer(Container, HasDockerLikeVolumes):
     def containerize_command(self, command):
 
         env = []
+
+        if self.tool_info:
+            reqmnts = self.tool_info.requirements
+            for req in reqmnts:
+                if req.type == "compute" and req.name == "gpu":
+                    flag = 1
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
+                log.info("**************************GPU ENABLED SINGULARITY**********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "true"
+            else:
+                log.info("**************************GPU DISABLED SINGULARITY*********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "false"
+
         for pass_through_var in self.tool_info.env_pass_through:
             env.append((pass_through_var, f"${pass_through_var}"))
 
@@ -407,6 +552,8 @@ class SingularityContainer(Container, HasDockerLikeVolumes):
                 real_key = key[len("singularity_env_"):]
                 env.append((real_key, value))
 
+        # env.append("GALAXY_GPU_ENABLED='%s'" % os.environ['GALAXY_GPU_ENABLED'])
+
         working_directory = self.job_info.working_directory
         if not working_directory:
             raise Exception(f"Cannot containerize command [{working_directory}] without defined working directory.")
@@ -415,10 +562,20 @@ class SingularityContainer(Container, HasDockerLikeVolumes):
         preprocessed_volumes_list = preprocess_volumes(volumes_raw, self.container_type)
         volumes = [DockerVolume.from_str(v) for v in preprocessed_volumes_list]
 
+        # singularity gives error when :rw and :ro is there, so replacing them (hack)
+        vols_str = []
+        for vol in volumes:
+            new_str = vol.__str__().replace(":rw", "")
+            new_str = new_str.replace(":ro", "")
+            vols_str.append(new_str)
+
+        volumes2 = []
+        for vol in vols_str:
+            volumes2.append(DockerVolume.from_str(vol))
         run_command = singularity_util.build_singularity_run_command(
             command,
             self.container_id,
-            volumes=volumes,
+            volumes=volumes2,
             env=env,
             working_directory=working_directory,
             run_extra_arguments=self.prop("run_extra_arguments", singularity_util.DEFAULT_RUN_EXTRA_ARGUMENTS),

@@ -2,8 +2,25 @@ import json
 import logging
 import os
 import shlex
+import subprocess
 import tempfile
 
+log = logging.getLogger(__name__)
+
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
+    gpu_flag = 1
+    import pynvml as nvml
+
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
 
 from galaxy import model
 from galaxy.files import ProvidesUserFileSourcesUserContext
@@ -129,7 +146,26 @@ class ToolEvaluator:
         if self._history:
             param_dict['__history_id__'] = self.app.security.encode_id(self._history.id)
         param_dict['__galaxy_url__'] = self.compute_environment.galaxy_url()
+
         param_dict.update(self.tool.template_macro_params)
+
+        os.environ['GALAXY_GPU_ENABLED'] = "false"
+        flag = 0
+        if self.tool:
+            reqmnts = self.tool.requirements
+            for req in reqmnts:
+                if req.type == "compute" and req.name == "gpu":
+                    flag = 1
+            if gpu_flag == 1 and gpu_count > 0 and flag == 1:
+                log.info("**************************GPU ENABLED!!!!!**********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "true"
+            else:
+                log.info("**************************GPU DISABLED!!!!!*********************************************")
+                os.environ['GALAXY_GPU_ENABLED'] = "false"
+
+        param_dict['__galaxy_gpu_enabled__'] = os.environ['GALAXY_GPU_ENABLED']
+        param_dict.update(self.tool.template_macro_params)
+
         # All parameters go into the param_dict
         param_dict.update(incoming)
 
