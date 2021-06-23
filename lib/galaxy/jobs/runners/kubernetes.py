@@ -42,6 +42,26 @@ from galaxy.jobs.runners.util.pykube_util import (
 )
 from galaxy.util.bytesize import ByteSize
 
+import subprocess
+gpu_flag = 0
+bash_command = "/bin/bash -c 'nvidia-smi'"
+sp = subprocess.Popen(bash_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+out, err = sp.communicate()
+command_not_found = 'command not found'
+if command_not_found.encode() not in out and command_not_found.encode() not in err:
+    log.debug("***************out: %s, err: %s, command_not_found.encode: %s ************COMMAND NOT FOUND NOT IN OUT" % (out, err, command_not_found.encode()))
+    gpu_flag = 1
+    import pynvml as nvml
+    from pynvml.smi import nvidia_smi
+    from bs4 import BeautifulSoup as bs
+
+
+if gpu_flag == 1:
+    nvml.nvmlInit()
+    gpu_count = nvml.nvmlDeviceGetCount()
+if gpu_flag == 1 and gpu_count > 0:
+    os.environ['GALAXY_GPU_ENABLED'] = "true"
+
 log = logging.getLogger(__name__)
 
 __all__ = ('KubernetesJobRunner', )
@@ -455,6 +475,9 @@ class KubernetesJobRunner(AsynchronousJobRunner):
                     envs.append({'name': 'GALAXY_MEMORY_MB', 'value': str(mem_val)})
                     if cpu_val:
                         envs.append({'name': 'GALAXY_MEMORY_MB_PER_SLOT', 'value': str(math.floor(mem_val / cpu_val))})
+                if 'gpu' in limits:
+                    #parse container name, and change it to gpu/cpu version accordingly
+                    k8s_container["image"].replace("cpu", "gpu")
             extra_envs = yaml.safe_load(self.__get_overridable_params(ajs.job_wrapper, 'k8s_extra_job_envs') or "{}")
             for key in extra_envs:
                 envs.append({'name': key, 'value': extra_envs[key]})
@@ -472,6 +495,7 @@ class KubernetesJobRunner(AsynchronousJobRunner):
 
         mem_limit = self.__get_memory_limit(job_wrapper)
         cpu_limit = self.__get_cpu_limit(job_wrapper)
+        gpu_limit = self.__get_gpu_limit(job_wrapper)
 
         requests = {}
         limits = {}
@@ -485,6 +509,8 @@ class KubernetesJobRunner(AsynchronousJobRunner):
             limits['memory'] = mem_limit
         if cpu_limit:
             limits['cpu'] = cpu_limit
+        if gpu_limit:
+            limits['gpu'] = gpu_limit
 
         resources = {}
         if requests:
@@ -524,6 +550,15 @@ class KubernetesJobRunner(AsynchronousJobRunner):
 
         if 'limits_cpu' in job_destination.params:
             return job_destination.params['limits_cpu']
+        return None
+
+    #FOR GPU SUPPORT
+    def __get_gpu_limit(self, job_wrapper):
+        """Obtains gpu requests for job, checking if available on the destination, otherwise using the default"""
+        job_destination = job_wrapper.job_destination
+
+        if 'limits_gpu' in job_destination.params:
+            return job_destination.params['limits_gpu']
         return None
 
     def __transform_memory_value(self, mem_value):

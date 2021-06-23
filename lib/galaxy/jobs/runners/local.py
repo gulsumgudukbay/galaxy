@@ -28,8 +28,6 @@ from .util.process_groups import (
 
 import shutil
 
-
-
 log = logging.getLogger(__name__)
 
 gpu_flag = 0
