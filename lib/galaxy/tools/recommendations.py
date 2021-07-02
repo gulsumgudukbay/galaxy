@@ -11,6 +11,7 @@ import yaml
 
 from galaxy.tools.parameters import populate_state
 from galaxy.tools.parameters.basic import workflow_building_modes
+from galaxy.util import DEFAULT_SOCKET_TIMEOUT
 from galaxy.workflow.modules import module_factory
 
 log = logging.getLogger(__name__)
@@ -56,15 +57,15 @@ class ToolRecommendations():
             # import moves from the top of file: in case the tool recommendation feature is disabled,
             # keras is not downloaded because of conditional requirement and Galaxy does not build
             try:
-                from keras.models import model_from_json
                 import tensorflow as tf
+                tf.compat.v1.disable_v2_behavior()
             except Exception:
                 trans.response.status = 400
                 return False
             # set graph and session only once
             if self.graph is None:
                 self.graph = tf.Graph()
-                self.session = tf.Session(graph=self.graph)
+                self.session = tf.compat.v1.Session(graph=self.graph)
             model_weights = list()
             counter_layer_weights = 0
             self.tool_recommendation_model_path = self.__download_model(remote_model_url)
@@ -79,10 +80,10 @@ class ToolRecommendations():
                         # iterate through all the attributes of the model to find weights of neural network layers
                         for item in trained_model.keys():
                             if "weight_" in item:
-                                weight = trained_model["weight_" + str(counter_layer_weights)][()]
+                                weight = trained_model[f"weight_{str(counter_layer_weights)}"][()]
                                 model_weights.append(weight)
                                 counter_layer_weights += 1
-                        self.loaded_model = model_from_json(model_config)
+                        self.loaded_model = tf.keras.models.model_from_json(model_config)
                         self.loaded_model.set_weights(model_weights)
                     except Exception as e:
                         log.exception(e)
@@ -133,7 +134,7 @@ class ToolRecommendations():
         """
         local_dir = os.path.join(os.getcwd(), download_local, 'tool_recommendation_model.hdf5')
         # read model from remote
-        model_binary = requests.get(model_url)
+        model_binary = requests.get(model_url, timeout=DEFAULT_SOCKET_TIMEOUT)
         # save model to a local directory
         with open(local_dir, 'wb') as model_file:
             model_file.write(model_binary.content)
@@ -271,7 +272,7 @@ class ToolRecommendations():
                 try:
                     sample[idx] = int(self.model_data_dictionary[tool_name])
                 except Exception:
-                    log.exception("Failed to find tool %s in model" % (tool_name))
+                    log.exception(f"Failed to find tool {tool_name} in model")
                     return prediction_data
             sample = np.reshape(sample, (1, self.max_seq_len))
             # boost the predicted scores using tools' usage

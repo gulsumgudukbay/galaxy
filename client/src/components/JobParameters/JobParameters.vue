@@ -2,7 +2,7 @@
     <div>
         <div v-if="!isSingleParam" class="tool-parameters">
             <h3 v-if="includeTitle">Tool Parameters</h3>
-            <table class="tabletip" id="tool-parameters">
+            <table class="tabletip info_data_table" id="tool-parameters">
                 <thead>
                     <tr>
                         <th>Input Parameter</th>
@@ -56,9 +56,11 @@ export default {
     props: {
         jobId: {
             type: String,
+            default: null,
         },
         datasetId: {
             type: String,
+            default: null,
         },
         datasetType: {
             type: String,
@@ -66,6 +68,7 @@ export default {
         },
         param: {
             type: String,
+            default: undefined,
         },
         includeTitle: {
             type: Boolean,
@@ -101,7 +104,9 @@ export default {
             return hasNotes;
         },
         singleParam: function () {
-            if (!this.isSingleParam) return;
+            if (!this.isSingleParam) {
+                return;
+            }
             const parameter = this.parameters.find((parameter) => {
                 return parameter.text === this.param;
             });
@@ -127,12 +132,3 @@ export default {
     },
 };
 </script>
-<style scoped>
-table.info_data_table {
-    table-layout: fixed;
-    word-break: break-word;
-}
-table.info_data_table td:nth-child(1) {
-    width: 25%;
-}
-</style>

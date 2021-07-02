@@ -1,0 +1,24 @@
+name: Client Unit Testing
+on: [push, pull_request]
+concurrency:
+  group: client-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  jest:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [12]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Setup node
+      uses: actions/setup-node@v1
+      with:
+        node-version: ${{ matrix.node}}
+    - uses: mvdbeek/gha-yarn-cache@master
+      with:
+        yarn-lock-file: 'client/yarn.lock'
+    - run: yarn install --frozen-lockfile
+      working-directory: client
+    - run: yarn jest
+      working-directory: client

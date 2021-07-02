@@ -1,12 +1,16 @@
 import logging
+import os
+import shlex
 import tempfile
-from collections import OrderedDict
 from functools import total_ordering
-
-from six.moves import shlex_quote
 
 from galaxy import exceptions
 from galaxy.model.none_like import NoneDataset
+from galaxy.tools.parameters.wrapped_json import (
+    data_collection_input_to_staging_path_and_source_path,
+    data_input_to_staging_path_and_source_path,
+)
+from galaxy.util import filesystem_safe_string
 from galaxy.util.object_wrapper import wrap_with_safe_string
 
 log = logging.getLogger(__name__)
@@ -34,7 +38,7 @@ class ToolParameterValueWrapper:
         """
         rval = self.input.value_to_display_text(self.value) or ''
         if quote:
-            return shlex_quote(rval)
+            return shlex.quote(rval)
         return rval
 
 
@@ -52,7 +56,7 @@ class RawObjectWrapper(ToolParameterValueWrapper):
 
     def __str__(self):
         try:
-            return "{}:{}".format(self.obj.__module__, self.obj.__class__.__name__)
+            return f"{self.obj.__module__}:{self.obj.__class__.__name__}"
         except Exception:
             # Most likely None, which lacks __module__.
             return str(self.obj)
@@ -67,10 +71,10 @@ class InputValueWrapper(ToolParameterValueWrapper):
     Wraps an input so that __str__ gives the "param_dict" representation.
     """
 
-    def __init__(self, input, value, other_values={}):
+    def __init__(self, input, value, other_values=None):
         self.input = input
         self.value = value
-        self._other_values = other_values
+        self._other_values = other_values or {}
 
     def _get_cast_value(self, other):
         if self.input.type == 'boolean' and isinstance(other, str):
@@ -159,11 +163,11 @@ class SelectToolParameterWrapper(ToolParameterValueWrapper):
 
             return self._input.separator.join(values)
 
-    def __init__(self, input, value, other_values={}, compute_environment=None):
+    def __init__(self, input, value, other_values=None, compute_environment=None):
         self.input = input
         self.value = value
         self.input.value_label = input.value_to_display_text(value)
-        self._other_values = other_values
+        self._other_values = other_values or {}
         self.compute_environment = compute_environment
         self.fields = self.SelectToolParameterFieldWrapper(input, value, other_values, self.compute_environment)
 
@@ -185,7 +189,7 @@ class SelectToolParameterWrapper(ToolParameterValueWrapper):
         return self.input.to_param_dict_string(self.value, other_values=self._other_values)
 
     def __add__(self, x):
-        return '{}{}'.format(self, x)
+        return f'{self}{x}'
 
     def __getattr__(self, key):
         return getattr(self.input, key)
@@ -242,6 +246,9 @@ class DatasetFilenameWrapper(ToolParameterValueWrapper):
         def __iter__(self):
             return self.metadata.__iter__()
 
+        def element_is_set(self, name):
+            return self.metadata.element_is_set(name)
+
         def get(self, key, default=None):
             try:
                 return getattr(self, key)
@@ -264,8 +271,8 @@ class DatasetFilenameWrapper(ToolParameterValueWrapper):
             # so we will wrap it and keep the original around for file paths
             # Should we name this .value to maintain consistency with most other ToolParameterValueWrapper?
             if formats:
-                target_ext, converted_dataset = dataset.find_conversion_destination(formats)
-                if target_ext and converted_dataset:
+                direct_match, target_ext, converted_dataset = dataset.find_conversion_destination(formats)
+                if not direct_match and target_ext and converted_dataset:
                     dataset = converted_dataset
             self.unsanitized = dataset
             self.dataset = wrap_with_safe_string(dataset, no_wrap_classes=ToolParameterValueWrapper)
@@ -301,6 +308,32 @@ class DatasetFilenameWrapper(ToolParameterValueWrapper):
         return identifier
 
     @property
+    def file_ext(self):
+        return getattr(self.unsanitized.datatype, 'file_ext_export_alias', self.dataset.extension)
+
+    @property
+    def name_and_ext(self):
+        return f"{self.element_identifier}.{self.file_ext}"
+
+    @property
+    def staging_path(self):
+        """
+        Strip leading dots, unicode null chars, replace `/` with `_`, truncate at 255 characters.
+
+        Not safe for commandline use, would need additional sanitization.
+        """
+        max_len = 254 - len(self.file_ext)
+        safe_element_identifier = filesystem_safe_string(self.element_identifier, max_len=max_len)
+        return f"{safe_element_identifier}.{self.file_ext}"
+
+    @property
+    def all_metadata_files(self):
+        return self.unsanitized.get_metadata_file_paths_and_extensions() if self else []
+
+    def serialize(self):
+        return data_input_to_staging_path_and_source_path(self) if self else {}
+
+    @property
     def is_collection(self):
         return False
 
@@ -311,7 +344,7 @@ class DatasetFilenameWrapper(ToolParameterValueWrapper):
             if datatype is not None:
                 datatypes.append(datatype)
             else:
-                log.warning("Datatype class not found for extension '%s', which is used as parameter of 'is_of_type()' method" % (e))
+                log.warning(f"Datatype class not found for extension '{e}', which is used as parameter of 'is_of_type()' method")
         return self.dataset.datatype.matches_any(datatypes)
 
     def __str__(self):
@@ -348,6 +381,8 @@ class DatasetFilenameWrapper(ToolParameterValueWrapper):
                         # instead of just returning a non-existent
                         # path like DiskObjectStore.
                         raise
+        elif key == 'serialize':
+            return self.serialize
         else:
             return getattr(self.dataset, key)
 
@@ -414,6 +449,9 @@ class DatasetListWrapper(list, ToolParameterValueWrapper, HasDatasets):
             self._dataset_elements_cache[group] = wrappers
         return self._dataset_elements_cache[group]
 
+    def serialize(self):
+        return [v.serialize() for v in self]
+
     def __str__(self):
         return ','.join(map(str, self))
 
@@ -425,10 +463,12 @@ class DatasetListWrapper(list, ToolParameterValueWrapper, HasDatasets):
 
 class DatasetCollectionWrapper(ToolParameterValueWrapper, HasDatasets):
 
-    def __init__(self, job_working_directory, has_collection, **kwargs):
+    def __init__(self, job_working_directory, has_collection, datatypes_registry=None, **kwargs):
         super().__init__()
         self.job_working_directory = job_working_directory
         self._dataset_elements_cache = {}
+        self._element_identifiers_extensions_paths_and_metadata_files = None
+        self.datatypes_registry = datatypes_registry
         self.kwargs = kwargs
 
         if has_collection is None:
@@ -451,7 +491,7 @@ class DatasetCollectionWrapper(ToolParameterValueWrapper, HasDatasets):
         self.collection = collection
 
         elements = collection.elements
-        element_instances = OrderedDict()
+        element_instances = {}
 
         element_instance_list = []
         for dataset_collection_element in elements:
@@ -493,6 +533,39 @@ class DatasetCollectionWrapper(ToolParameterValueWrapper, HasDatasets):
         return self.name
 
     @property
+    def all_paths(self):
+        return [path for _, _, path, _ in self.element_identifiers_extensions_paths_and_metadata_files]
+
+    @property
+    def all_metadata_files(self):
+        return [metadata_files for _, _, _, metadata_files in self.element_identifiers_extensions_paths_and_metadata_files]
+
+    @property
+    def element_identifiers_extensions_paths_and_metadata_files(self):
+        if self._element_identifiers_extensions_paths_and_metadata_files is None:
+            if self.collection:
+                self._element_identifiers_extensions_paths_and_metadata_files = self.collection.element_identifiers_extensions_paths_and_metadata_files
+            else:
+                return []
+        return self._element_identifiers_extensions_paths_and_metadata_files
+
+    @property
+    def all_staging_paths(self):
+        safe_element_identifiers = []
+        for element_identifiers, extension, *_ in self.element_identifiers_extensions_paths_and_metadata_files:
+            datatype = self.datatypes_registry.get_datatype_by_extension(extension)
+            if datatype:
+                extension = getattr(datatype, 'file_ext_export_alias', extension)
+            current_element_identifiers = []
+            for element_identifier in element_identifiers:
+                current_element_identifiers.append(filesystem_safe_string(element_identifier, max_len=254 - len(extension)))
+            safe_element_identifiers.append(f'{os.path.sep.join(current_element_identifiers)}.{extension}')
+        return safe_element_identifiers
+
+    def serialize(self):
+        return data_collection_input_to_staging_path_and_source_path(self)
+
+    @property
     def is_input_supplied(self):
         return self.__input_supplied
 
@@ -529,7 +602,7 @@ class ElementIdentifierMapper:
 
     def __init__(self, input_datasets=None):
         if input_datasets is not None:
-            self.identifier_key_dict = {v: "%s|__identifier__" % k for k, v in input_datasets.items()}
+            self.identifier_key_dict = {v: f"{k}|__identifier__" for k, v in input_datasets.items()}
         else:
             self.identifier_key_dict = {}
 

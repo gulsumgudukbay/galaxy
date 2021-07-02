@@ -18,8 +18,8 @@ CREATE_VENV=1
 REPLACE_PIP=$SET_VENV
 COPY_SAMPLE_FILES=1
 SKIP_CLIENT_BUILD=${GALAXY_SKIP_CLIENT_BUILD:-0}
-CLIENT_DEV_SERVER=${GALAXY_CLIENT_DEV_SERVER:-0}
 NODE_VERSION=${GALAXY_NODE_VERSION:-"$(cat client/.node_version)"}
+YARN_INSTALL_OPTS=${YARN_INSTALL_OPTS:-"--network-timeout 300000 --check-files"}
 
 for arg in "$@"; do
     [ "$arg" = "--skip-eggs" ] && FETCH_WHEELS=0
@@ -32,11 +32,6 @@ for arg in "$@"; do
     [ "$arg" = "--skip-samples" ] && COPY_SAMPLE_FILES=0
     [ "$arg" = "--skip-client-build" ] && SKIP_CLIENT_BUILD=1
 done
-
-# If a client dev server is being configured, skip the client build.
-if [ $CLIENT_DEV_SERVER -ne 0 ]; then
-    SKIP_CLIENT_BUILD=1
-fi
 
 SAMPLES="
     lib/tool_shed/scripts/bootstrap_tool_shed/user_info.xml.sample
@@ -192,7 +187,7 @@ fi
 
 requirement_args="-r requirements.txt"
 if [ $DEV_WHEELS -eq 1 ]; then
-    requirement_args="$requirement_args -r ${GALAXY_DEV_REQUIREMENTS}"
+    requirement_args="-r ${GALAXY_DEV_REQUIREMENTS}"
 fi
 
 [ "$CI" = 'true' ] && export PIP_PROGRESS_BAR=off
@@ -264,7 +259,7 @@ if [ $SKIP_CLIENT_BUILD -eq 0 ]; then
     fi
     # Build client
     cd client
-    if yarn install --network-timeout 300000 --check-files; then
+    if yarn install $YARN_INSTALL_OPTS; then
         if ! yarn run build-production-maps; then
             echo "ERROR: Galaxy client build failed. See ./client/README.md for more information, including how to get help."
             exit 1

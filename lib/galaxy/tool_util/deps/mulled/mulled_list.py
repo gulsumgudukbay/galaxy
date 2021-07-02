@@ -3,12 +3,11 @@
 import argparse
 import logging
 from glob import glob
+from html.parser import HTMLParser
 
 import requests
-try:
-    from html.parser import HTMLParser
-except ImportError:  # python 2
-    from HTMLParser import HTMLParser
+
+from .util import MULLED_SOCKET_TIMEOUT
 
 QUAY_API_ENDPOINT = 'https://quay.io/api/v1/repository'
 
@@ -29,10 +28,11 @@ def get_quay_containers(repository='biocontainers'):
     for repo in repos:
         logging.info(repo)
         tags_response = requests.get(
-            "{}/{}/{}".format(QUAY_API_ENDPOINT, repository, repo['name']))
+            f"{QUAY_API_ENDPOINT}/{repository}/{repo['name']}",
+            timeout=MULLED_SOCKET_TIMEOUT)
         tags = tags_response.json()['tags']
         for tag in tags:
-            containers.append('{}:{}'.format(repo['name'], tag))
+            containers.append(f"{repo['name']}:{tag}")
 
     return containers
 
@@ -55,7 +55,7 @@ def get_singularity_containers():
                 pass
 
     parser = GetContainerNames()
-    index = requests.get("https://depot.galaxyproject.org/singularity/")
+    index = requests.get("https://depot.galaxyproject.org/singularity/", timeout=MULLED_SOCKET_TIMEOUT)
     parser.feed(index.text)
     return parser.containers
 
@@ -64,7 +64,7 @@ def get_conda_envs(filepath):
     """
     Get list of already existing envs
     """
-    return [n.split('__')[-1].replace('@', ':') for n in glob('%s/*' % filepath)]
+    return [n.split('__')[-1].replace('@', ':') for n in glob(f'{filepath}/*')]
 
 
 def get_missing_containers(quay_list, singularity_list, blocklist_file=None):
@@ -127,7 +127,7 @@ def main():
     if args.output:
         with open(args.output, 'a') as f:
             for container in containers:
-                f.write('%s\n' % container)
+                f.write(f'{container}\n')
     else:
         print(containers)
 

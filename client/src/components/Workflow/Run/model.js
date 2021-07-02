@@ -1,4 +1,3 @@
-import $ from "jquery";
 import _ from "underscore";
 
 import FormData from "mvc/form/form-data";
@@ -10,16 +9,21 @@ export class WorkflowRunModel {
         this.runData = runData;
         this.name = runData.name;
         this.workflowResourceParameters = runData.workflow_resource_parameters;
+        this.hasWorkflowResourceParameters = !_.isEmpty(this.workflowResourceParameters);
         this.historyId = runData.history_id;
         this.workflowId = runData.id;
 
         this.hasUpgradeMessages = runData.has_upgrade_messages;
-        this.hasStepVersionChanges = runData.step_version_changes && runData.step_version_changes.length > 0;
+        this.hasStepVersionChanges = !_.isEmpty(runData.step_version_changes);
 
         this.steps = [];
         this.links = [];
         this.parms = [];
         this.wpInputs = {};
+        this.parameterInputLabels = [];
+
+        let hasOpenToolSteps = false;
+        let hasReplacementParametersInToolForm = false;
 
         _.each(runData.steps, (step, i) => {
             var icon = WorkflowIcons[step.step_type];
@@ -61,6 +65,10 @@ export class WorkflowRunModel {
             this.steps[i] = step;
             this.links[i] = [];
             this.parms[i] = {};
+
+            if (step.step_type == "parameter_input" && step.step_label) {
+                this.parameterInputLabels.push(step.step_label);
+            }
         });
 
         // build linear index of step input pairs
@@ -130,6 +138,7 @@ export class WorkflowRunModel {
         _.each(this.steps, (step, i) => {
             _.each(this.parms[i], (input, name) => {
                 _handleWorkflowParameter(input.value, (wp_input) => {
+                    hasReplacementParametersInToolForm = true;
                     wp_input.links.push(step);
                     input.wp_linked = true;
                     input.type = "text";
@@ -138,7 +147,9 @@ export class WorkflowRunModel {
                 });
             });
             _.each(step.replacement_parameters, (wp_name) => {
-                _ensureWorkflowParameter(wp_name);
+                if (this.parameterInputLabels.indexOf(wp_name) == -1) {
+                    _ensureWorkflowParameter(wp_name);
+                }
             });
         });
 
@@ -166,6 +177,7 @@ export class WorkflowRunModel {
                         (input.value && input.value.__class__ == "RuntimeValue" && !input.step_linked)
                     ) {
                         step.collapsed = false;
+                        hasOpenToolSteps = true;
                     }
                     if (is_runtime_value) {
                         input.value = null;
@@ -180,12 +192,14 @@ export class WorkflowRunModel {
                 });
             }
         });
+        this.hasOpenToolSteps = hasOpenToolSteps;
+        this.hasReplacementParametersInToolForm = hasReplacementParametersInToolForm;
     }
 }
 
 /** Is data input module/step */
 export function isDataStep(steps) {
-    var lst = $.isArray(steps) ? steps : [steps];
+    var lst = Array.isArray(steps) ? steps : [steps];
     for (var i = 0; i < lst.length; i++) {
         var step = lst[i];
         if (!step || !step.step_type || !step.step_type.startsWith("data")) {

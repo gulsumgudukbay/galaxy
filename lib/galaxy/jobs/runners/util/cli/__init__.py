@@ -1,6 +1,8 @@
 """
 """
+import importlib
 import json
+import pkgutil
 from glob import glob
 from os import getcwd
 from os.path import (
@@ -23,28 +25,42 @@ class CliInterface:
     def __init__(self, code_dir='lib'):
         """
         """
-        def __load(module_path, d):
+        def __load_from_code_dir(module_path):
             module_pattern = join(join(getcwd(), code_dir, *module_path.split('.')), '*.py')
             for file in glob(module_pattern):
                 if basename(file).startswith('_'):
                     continue
-                module_name = '{}.{}'.format(module_path, basename(file).rsplit('.py', 1)[0])
+                module_name = f"{module_path}.{basename(file).rsplit('.py', 1)[0]}"
                 module = __import__(module_name)
                 for comp in module_name.split(".")[1:]:
                     module = getattr(module, comp)
+                yield module
+
+        def __load_from_path(module_path):
+            base_module = importlib.import_module(module_path)
+            for module_info in pkgutil.iter_modules(base_module.__path__):
+                module = importlib.import_module(f'{module_path}.{module_info.name}')
+                yield module
+
+        def __load(module_path, d):
+            if code_dir is not None:
+                module_generator = __load_from_code_dir
+            else:
+                module_generator = __load_from_path
+            for module in module_generator(module_path):
                 for name in module.__all__:
                     try:
                         d[name] = getattr(module, name)
                     except TypeError:
-                        raise TypeError("Invalid type for name %s" % name)
+                        raise TypeError(f"Invalid type for name {name}")
 
         self.cli_shells = {}
         self.cli_job_interfaces = {}
         self.active_cli_shells = {}
 
         module_prefix = self.__module__
-        __load('%s.shell' % module_prefix, self.cli_shells)
-        __load('%s.job' % module_prefix, self.cli_job_interfaces)
+        __load(f'{module_prefix}.shell', self.cli_shells)
+        __load(f'{module_prefix}.job', self.cli_job_interfaces)
 
     def get_plugins(self, shell_params, job_params):
         """

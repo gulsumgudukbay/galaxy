@@ -325,14 +325,14 @@ class LocalJobRunner(BaseJobRunner):
         stderr = stdout = ''
 
         # command line has been added to the wrapper by prepare_job()
-        command_line, exit_code_path = self.__command_line(job_wrapper)
+        job_file, exit_code_path = self.__command_line(job_wrapper)
         job_id = job_wrapper.get_id_tag()
         tool_name = "%s_%s" % (job_wrapper.tool.id, job_id)
 
         try:
             stdout_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stdout', dir=job_wrapper.working_directory)
             stderr_file = tempfile.NamedTemporaryFile(mode='wb+', suffix='_stderr', dir=job_wrapper.working_directory)
-            log.debug('({}) executing job script: {}'.format(job_id, command_line))
+            # log.debug('({}) executing job script: {}'.format(job_id, command_line))
 
             # gpu_stats
             if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
@@ -377,12 +377,12 @@ class LocalJobRunner(BaseJobRunner):
                 # File_object.write(out_str[0].__str__())
                 File_object.close()
 
+            log.debug(f'({job_id}) executing job script: {job_file}')
             # The preexec_fn argument of Popen() is used to call os.setpgrp() in
             # the child process just before the child is executed. This will set
             # the PGID of the child process to its PID (i.e. ensures that it is
             # the root of its own process group instead of Galaxy's one).
-            proc = subprocess.Popen(args=command_line,
-                                    shell=True,
+            proc = subprocess.Popen(args=[job_file],
                                     cwd=job_wrapper.working_directory,
                                     stdout=stdout_file,
                                     stderr=stderr_file,
@@ -464,7 +464,7 @@ class LocalJobRunner(BaseJobRunner):
             # metadata internal or job not complete yet
             pid = job.get_job_runner_external_id()
         if pid in [None, '']:
-            log.warning("stop_job(): %s: no PID in database for job, unable to stop" % job.id)
+            log.warning(f"stop_job(): {job.id}: no PID in database for job, unable to stop")
             return
         pid = int(pid)
         if not check_pg(pid):

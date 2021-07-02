@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import subprocess
+import shlex
 import tempfile
 
 log = logging.getLogger(__name__)
@@ -100,22 +101,9 @@ class ToolEvaluator:
         inp_data, out_data, out_collections = job.io_dicts()
 
         if get_special:
-
-            # Set up output dataset association for export history jobs. Because job
-            # uses a Dataset rather than an HDA or LDA, it's necessary to set up a
-            # fake dataset association that provides the needed attributes for
-            # preparing a job.
-            class FakeDatasetAssociation :
-                fake_dataset_association = True
-
-                def __init__(self, dataset=None):
-                    self.dataset = dataset
-                    self.file_name = dataset.file_name
-                    self.metadata = dict()
-
             special = get_special()
             if special:
-                out_data["output_file"] = FakeDatasetAssociation(dataset=special.dataset)
+                out_data["output_file"] = special.fda
 
         # These can be passed on the command line if wanted as $__user_*__
         incoming.update(model.User.user_template_environment(job.history and job.history.user))
@@ -244,10 +232,10 @@ class ToolEvaluator:
                 for conversion_name, conversion_extensions, conversion_datatypes in input.conversions:
                     # If we are at building cmdline step, then converters
                     # have already executed
-                    conv_ext, converted_dataset = input_values[input.name].find_conversion_destination(conversion_datatypes)
+                    direct_match, conv_ext, converted_dataset = input_values[input.name].find_conversion_destination(conversion_datatypes)
                     # When dealing with optional inputs, we'll provide a
                     # valid extension to be used for None converted dataset
-                    if not conv_ext:
+                    if not direct_match and not conv_ext:
                         conv_ext = conversion_extensions[0]
                     # input_values[ input.name ] is None when optional
                     # dataset, 'conversion' of optional dataset should
@@ -370,7 +358,7 @@ class ToolEvaluator:
                 if not output_def.implicit:
                     dataset_wrapper = wrapper[element_identifier]
                     param_dict[output_def.name] = dataset_wrapper
-                    log.info("Updating param_dict for {} with {}".format(output_def.name, dataset_wrapper))
+                    log.info(f"Updating param_dict for {output_def.name} with {dataset_wrapper}")
 
     def __populate_output_dataset_wrappers(self, param_dict, output_datasets, job_working_directory):
         for name, hda in output_datasets.items():
@@ -447,9 +435,9 @@ class ToolEvaluator:
         it = []
         for ep in getattr(self.tool, 'ports', []):
             ep_dict = {}
-            for key in 'port', 'name', 'url':
+            for key in 'port', 'name', 'url', 'requires_domain':
                 val = ep.get(key, None)
-                if val is not None:
+                if val is not None and not isinstance(val, bool):
                     val = fill_template(val, context=param_dict, python_template_version=self.tool.python_template_version)
                     clean_val = []
                     for line in val.split('\n'):
@@ -546,8 +534,7 @@ class ToolEvaluator:
             executable = command_line.split()[0]
             tool_dir = os.path.abspath(self.tool.tool_dir)
             abs_executable = os.path.join(tool_dir, executable)
-            command_line = command_line.replace(executable, abs_executable, 1)
-            command_line = interpreter + " " + command_line
+            command_line = command_line.replace(executable, f"{interpreter} {shlex.quote(abs_executable)}", 1)
         self.command_line = command_line
 
     def __build_config_files(self):
@@ -565,8 +552,8 @@ class ToolEvaluator:
                 directory = os.path.join(self.local_working_directory, "working")
                 config_filename = os.path.join(directory, filename)
             else:
-                fd, config_filename = tempfile.mkstemp(dir=directory)
-                os.close(fd)
+                with tempfile.NamedTemporaryFile(dir=directory, delete=False) as temp:
+                    config_filename = temp.name
             self.__write_workdir_file(config_filename, config_text, param_dict, is_template=is_template)
             self.__register_extra_file(name, config_filename)
             config_filenames.append(config_filename)
@@ -589,23 +576,24 @@ class ToolEvaluator:
                 is_template = False
             else:
                 is_template = True
-            fd, config_filename = tempfile.mkstemp(dir=directory)
-            os.close(fd)
+            with tempfile.NamedTemporaryFile(dir=directory, prefix="tool_env_", delete=False) as temp:
+                config_filename = temp.name
             self.__write_workdir_file(config_filename, environment_variable_template, param_dict, is_template=is_template, strip=environment_variable_def.get("strip", False))
             config_file_basename = os.path.basename(config_filename)
             # environment setup in job file template happens before `cd $working_directory`
-            environment_variable["value"] = '`cat "$_GALAXY_JOB_DIR/%s"`' % config_file_basename
+            environment_variable["value"] = f'`cat "{self.compute_environment.env_config_directory()}/{config_file_basename}"`'
             environment_variable["raw"] = True
+            environment_variable["job_directory_path"] = config_filename
             environment_variables.append(environment_variable)
 
         home_dir = self.compute_environment.home_directory()
         tmp_dir = self.compute_environment.tmp_directory()
         if home_dir:
-            environment_variable = dict(name="HOME", value='"%s"' % home_dir, raw=True)
+            environment_variable = dict(name="HOME", value=f'"{home_dir}"', raw=True)
             environment_variables.append(environment_variable)
         if tmp_dir:
             for tmp_directory_var in self.tool.tmp_directory_vars:
-                environment_variable = dict(name=tmp_directory_var, value='"%s"' % tmp_dir, raw=True)
+                environment_variable = dict(name=tmp_directory_var, value=f'"{tmp_dir}"', raw=True)
                 environment_variables.append(environment_variable)
         self.environment_variables = environment_variables
         return environment_variables
@@ -618,17 +606,15 @@ class ToolEvaluator:
         directory = self.local_working_directory
         command = self.tool.command
         if self.tool.profile < 16.04 and command and "$param_file" in command:
-            fd, param_filename = tempfile.mkstemp(dir=directory)
-            os.close(fd)
-            with open(param_filename, "w") as f:
+            with tempfile.NamedTemporaryFile(mode='w', dir=directory, delete=False) as param:
                 for key, value in param_dict.items():
                     # parameters can be strings or lists of strings, coerce to list
                     if not isinstance(value, list):
                         value = [value]
                     for elem in value:
-                        f.write('{}={}\n'.format(key, elem))
-            self.__register_extra_file('param_file', param_filename)
-            return param_filename
+                        param.write(f'{key}={elem}\n')
+            self.__register_extra_file('param_file', param.name)
+            return param.name
         else:
             return None
 
@@ -650,7 +636,7 @@ class ToolEvaluator:
             rval = json.dumps(file_sources_dict)
             return rval, False
         else:
-            raise Exception("Unknown config file type %s" % config_type)
+            raise Exception(f"Unknown config file type {config_type}")
 
         return json.dumps(wrapped_json.json_wrap(self.tool.inputs,
                                                  self.param_dict,
@@ -696,4 +682,7 @@ class ToolEvaluator:
     @property
     def _user(self):
         history = self._history
-        return history and history.user
+        if history:
+            return history.user
+        else:
+            return self.job.user
