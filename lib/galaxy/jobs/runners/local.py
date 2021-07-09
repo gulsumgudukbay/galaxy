@@ -86,12 +86,6 @@ def get_gpu_usage(gpu_id):
             print("added to proc_gpu_dict")
             print(proc_gpu_dict)
 
-    for x, y in proc_gpu_dict.items():
-        #all_gpus.append(x)
-        #print(y)
-        if y == []:
-            avail_gpus.append(x)
-
     proc_gpu_dict = {}
 
     for gp in all_gpus:
@@ -106,6 +100,12 @@ def get_gpu_usage(gpu_id):
                 proc_gpu_dict[int(p.find("minor_number").get_text())].append(proc.get_text())
 
         avail_gpus.append(min(proc_gpu_dict.items(), key=lambda x: x[1])[0])
+
+    for x, y in proc_gpu_dict.items():
+        #all_gpus.append(x)
+        #print(y)
+        if y == []:
+            avail_gpus.append(x)
 
     print("local.py: AVAIL GPUS: %s" % avail_gpus)
     print("local.py: ALL GPUS: %s" % all_gpus)
@@ -433,7 +433,7 @@ class LocalJobRunner(BaseJobRunner):
             stderr = self._job_io_for_db(stderr_file)
             stdout_file.close()
             stderr_file.close()
-            log.debug('execution finished: %s' % command_line)
+            log.debug('execution finished\n')
             if gpu_flag == 1 and os.environ['GALAXY_GPU_ENABLED'] == "true":
                 os.kill(sp, 9)
                 self.post_process(log_file_path, util_path, util_mem_path, mem_free_path, mem_used_path, pcie_link_gen_cur_path, stats_path)
